@@ -48,6 +48,24 @@ let gunMat = new THREE.MeshStandardMaterial({color:0x555555});
 let gun = new THREE.Mesh(gunGeo, gunMat);
 scene.add(gun);
 
+// Laser beam
+let laserMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+
+let laserPoints = [
+ new THREE.Vector3(),
+ new THREE.Vector3(0,0,-5)
+];
+
+let laserGeometry = new THREE.BufferGeometry().setFromPoints(laserPoints);
+let laser = new THREE.Line(laserGeometry, laserMaterial);
+scene.add(laser);
+
+// Impact point (mira)
+let crosshairGeo = new THREE.SphereGeometry(0.03, 8, 8);
+let crosshairMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+let crosshair = new THREE.Mesh(crosshairGeo, crosshairMat);
+scene.add(crosshair);
+
 // Targets
 let targets = [];
 function spawnTarget(){
@@ -145,9 +163,36 @@ hands.onResults(results=>{
    handClosed = false;
   }
 
-  // Position gun
-  let x = (lm[9].x - 0.5) * 2;
-  let y = -(lm[9].y - 0.5) * 2;
+// Posição livre (sem centralização rígida)
+let x = (lm[9].x - 0.5) * 2;
+let y = -(lm[9].y - 0.5) * 2;
+let z = -1 + (lm[9].z || 0) * 2;
+
+gun.position.set(x, y, z);
+
+// ===== ORIENTAÇÃO DA MÃO =====
+
+// ponto da palma
+let wrist = lm[0];
+
+// ponto do dedo médio (direção frontal da mão)
+let middle = lm[12];
+
+// vetor direção da mão
+let dir = new THREE.Vector3(
+ middle.x - wrist.x,
+ -(middle.y - wrist.y),
+ -(middle.z - wrist.z)
+).normalize();
+
+// vetor base forward
+let forward = new THREE.Vector3(0,0,-1);
+
+// quaternion de rotação
+let quat = new THREE.Quaternion().setFromUnitVectors(forward, dir);
+
+// aplica rotação na arma
+gun.quaternion.slerp(quat, 0.5);
 
   gun.position.set(x, y, -1);
  }
@@ -197,6 +242,34 @@ function animate(){
  requestAnimationFrame(animate);
 
  updateCamera();
+
+ // Atualizar laser e mira
+let origin = new THREE.Vector3();
+let direction = new THREE.Vector3();
+
+gun.getWorldPosition(origin);
+
+// direção baseada na câmera (onde você olha)
+gun.getWorldPosition(origin);
+gun.getWorldDirection(direction);
+
+raycaster.set(origin, direction);
+
+let intersects = raycaster.intersectObjects(targets);
+
+let endPoint;
+
+if(intersects.length > 0){
+ endPoint = intersects[0].point;
+} else {
+ endPoint = origin.clone().add(direction.multiplyScalar(10));
+}
+
+// Atualiza laser
+laser.geometry.setFromPoints([origin, endPoint]);
+
+// Atualiza mira
+crosshair.position.copy(endPoint);
 
  renderer.setScissorTest(true);
 
