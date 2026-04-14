@@ -29,17 +29,45 @@
 
 <body>
     <div id="hud">Score: 0</div>
+    <div id="camLabel" style="
+        position:absolute;
+        bottom:10px;
+        left:50%;
+        transform:translateX(-50%);
+        color:white;
+        font-family:monospace;
+        z-index:10;
+        ">
+        Camera: loading...
+    </div>
+
+    <video id="camPreview" autoplay playsinline muted style="
+        position:absolute;
+        bottom:10px;
+        right:10px;
+        width:120px;
+        height:90px;
+        border:2px solid white;
+        z-index:10;
+        ">
+    </video>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.152/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
     <script>
+        const video = document.getElementById("camPreview");
         let scene = new THREE.Scene();
 
         let renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
+
+        let videoTexture = new THREE.VideoTexture(video);
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
+
+        scene.background = videoTexture;
 
         // Stereo cameras
         let cameraL = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -178,9 +206,9 @@
 
                 // Movimento da mão (offset relativo)
                 let handOffset = new THREE.Vector3(
-                (lm[9].x - 0.5) * 0.5,
-                -(lm[9].y - 0.5) * 0.5,
-                (lm[9].z || 0) * 0.5
+                    (lm[9].x - 0.5) * 0.5,
+                    -(lm[9].y - 0.5) * 0.5,
+                    (lm[9].z || 0) * 0.5
                 );
 
                 // Rotaciona offset junto com a cabeça
@@ -189,8 +217,8 @@
 
                 // posição final
                 gun.position.copy(cameraL.position)
-                .add(baseOffset)
-                .add(handOffset);
+                    .add(baseOffset)
+                    .add(handOffset);
 
                 // ===== ORIENTAÇÃO DA MÃO =====
 
@@ -219,15 +247,28 @@
         });
 
         // Camera input
-        const video = document.createElement("video");
-
         const cam = new Camera(video, {
             onFrame: async () => {
+                // MediaPipe
                 await hands.send({ image: video });
+
+                // Detectar qual câmera está ativa
+                if (video.srcObject) {
+                    let track = video.srcObject.getVideoTracks()[0];
+                    let settings = track.getSettings();
+
+                    if (settings.facingMode === "environment") {
+                        camLabel.innerText = "Camera: traseira";
+                    } else {
+                        camLabel.innerText = "Camera: frontal";
+                    }
+                }
             },
             width: 640,
             height: 480
         });
+        let camLabel = document.getElementById("camLabel");
+
         cam.start();
 
         // Fisheye shader (simple)
@@ -266,8 +307,6 @@
             // Atualizar laser e mira
             let origin = new THREE.Vector3();
             let direction = new THREE.Vector3();
-
-            gun.getWorldPosition(origin);
 
             // direção baseada na câmera (onde você olha)
             gun.getWorldPosition(origin);
