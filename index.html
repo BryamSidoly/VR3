@@ -163,48 +163,60 @@
         let initialQuaternion = null;
 
         function updateCamera() {
-            let alpha = THREE.MathUtils.degToRad(rotation.alpha);
-            let beta = THREE.MathUtils.degToRad(rotation.beta);
-            let gamma = THREE.MathUtils.degToRad(rotation.gamma);
+    let alpha = THREE.MathUtils.degToRad(rotation.alpha);
+    let beta = THREE.MathUtils.degToRad(rotation.beta);
+    let gamma = THREE.MathUtils.degToRad(rotation.gamma);
 
-            // ordem correta do device
-            let euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
-            let deviceQuat = new THREE.Quaternion().setFromEuler(euler);
+    // 1. sensor
+    let euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+    let deviceQuat = new THREE.Quaternion().setFromEuler(euler);
 
-            let correctionQuat = new THREE.Quaternion();
-            correctionQuat.setFromAxisAngle(
-                new THREE.Vector3(1, 0, 0),
-                -Math.PI / 2
-            );
+    // 2. correção do dispositivo
+    let correctionQuat = new THREE.Quaternion();
+    correctionQuat.setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        -Math.PI / 2
+    );
 
-            deviceQuat.multiply(correctionQuat);
+    deviceQuat.multiply(correctionQuat);
 
-            // 🔥 rotação da tela (landscape vs portrait)
-            let screenAngle = screen.orientation ? screen.orientation.angle : window.orientation || 0;
+    // 3. correção da tela (LANDSCAPE / PORTRAIT)
+    let angle = 0;
 
-            let screenQuat = new THREE.Quaternion().setFromAxisAngle(
-                new THREE.Vector3(0, 0, 1),
-                -THREE.MathUtils.degToRad(screenAngle)
-            );
+    if (screen.orientation && typeof screen.orientation.angle === "number") {
+        angle = screen.orientation.angle;
+    } else if (typeof window.orientation === "number") {
+        angle = window.orientation;
+    }
 
-            deviceQuat.multiply(screenQuat);
+    angle = ((angle % 360) + 360) % 360;
 
-            // calibração inicial
-            if (!initialQuaternion) {
-                initialQuaternion = deviceQuat.clone().invert();
-            }
+    const screenQuat = new THREE.Quaternion();
+    screenQuat.setFromAxisAngle(
+        new THREE.Vector3(0, 1, 0),
+        THREE.MathUtils.degToRad(-angle)
+    );
 
-            deviceQuat.multiply(initialQuaternion);
+    deviceQuat.premultiply(screenQuat);
 
-            cameraL.quaternion.copy(deviceQuat);
-            cameraR.quaternion.copy(deviceQuat);
+    // 4. calibração inicial (IMPORTANTE: depois de tudo)
+    if (!initialQuaternion) {
+        initialQuaternion = deviceQuat.clone().invert();
+    }
 
-            let offsetL = new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat);
-            let offsetR = new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat);
+    deviceQuat.multiply(initialQuaternion);
 
-            cameraL.position.copy(offsetL);
-            cameraR.position.copy(offsetR);
-        }
+    // aplica nas câmeras
+    cameraL.quaternion.copy(deviceQuat);
+    cameraR.quaternion.copy(deviceQuat);
+
+    // IPD stereo
+    let offsetL = new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat);
+    let offsetR = new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat);
+
+    cameraL.position.copy(offsetL);
+    cameraR.position.copy(offsetR);
+}
         // MediaPipe Hands
         let handClosed = false;
 
