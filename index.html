@@ -3,37 +3,21 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
-<title>VR Shooter Hand Tracking</title>
+<title>VR Shooter Advanced</title>
 
 <style>
-  body { margin: 0; overflow: hidden; background: black; }
-  canvas { display: block; }
-
-  #video {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 160px;
-    height: 120px;
-    opacity: 0.01;
-    pointer-events: none;
-  }
-
-  #ui {
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    color: white;
-    font-family: sans-serif;
-    font-size: 12px;
-    z-index: 10;
-  }
+body { margin:0; overflow:hidden; background:black; }
+canvas { display:block; }
+#video { position:fixed; width:120px; height:90px; opacity:0.01; }
+#ui {
+  position:fixed; top:10px; left:10px; color:white;
+  font-family:Arial; font-size:12px;
+}
 </style>
-
 </head>
 <body>
 
-<div id="ui">VR Shooter - Hand Tracking</div>
+<div id="ui">VR Shooter Advanced</div>
 <video id="video" autoplay playsinline></video>
 
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -42,212 +26,249 @@
 
 <script>
 
+// ===================== GLOBAL =====================
 let scene, camera, renderer;
-let gun, handMesh;
-let targets = [];
-let handLandmarks = null;
+let gun;
+let enemies = [];
+let hand = null;
 
+let ipd = 0.065; // distância olhos
 let deviceQuat = new THREE.Quaternion();
 
+let recoil = 0;
+let audioCtx;
+
+// filtros mão
+let handSmoothed = {x:0,y:0,z:0};
+let velocity = {x:0,y:0,z:0};
+
+// ===================== INIT =====================
 init();
+initAudio();
+initHands();
 animate();
-initHandTracking();
 
 function init() {
+
   scene = new THREE.Scene();
 
-  camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
-  camera.position.set(0, 1.6, 3);
+  camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setSize(innerWidth, innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Luz
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(5, 10, 5);
+  scene.add(new THREE.AmbientLight(0xffffff,0.5));
+  const light = new THREE.DirectionalLight(0xffffff,1);
+  light.position.set(3,5,2);
   scene.add(light);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-
-  // Chão
+  // chão
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(50, 50),
-    new THREE.MeshStandardMaterial({ color: 0x222222 })
+    new THREE.PlaneGeometry(50,50),
+    new THREE.MeshStandardMaterial({color:0x222222})
   );
   floor.rotation.x = -Math.PI/2;
   scene.add(floor);
 
-  // Arma (modelo simples)
+  // arma
   gun = new THREE.Group();
-
   const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.1, 0.8),
-    new THREE.MeshStandardMaterial({ color: 0x333333 })
+    new THREE.BoxGeometry(0.3,0.1,0.8),
+    new THREE.MeshStandardMaterial({color:0x444444})
   );
-
-  const barrel = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.6),
-    new THREE.MeshStandardMaterial({ color: 0x777777 })
-  );
-
-  barrel.position.z = -0.7;
   gun.add(body);
-  gun.add(barrel);
-
   scene.add(gun);
 
-  // Alvos
-  for (let i = 0; i < 10; i++) {
-    const t = new THREE.Mesh(
-      new THREE.SphereGeometry(0.2, 16, 16),
-      new THREE.MeshStandardMaterial({ color: 0xff4444 })
+  // inimigos
+  for(let i=0;i<8;i++){
+    const e = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3),
+      new THREE.MeshStandardMaterial({color:0xff3333})
     );
-    t.position.set(
-      (Math.random()-0.5)*10,
-      1 + Math.random()*2,
-      -5 - Math.random()*20
-    );
-    scene.add(t);
-    targets.push(t);
+    e.position.set((Math.random()-0.5)*10,1,-5-Math.random()*20);
+    e.userData.speed = 0.01 + Math.random()*0.02;
+    scene.add(e);
+    enemies.push(e);
   }
 
-  // Sensor do celular
-  window.addEventListener("deviceorientation", (e) => {
-    const alpha = THREE.MathUtils.degToRad(e.alpha || 0);
-    const beta = THREE.MathUtils.degToRad(e.beta || 0);
-    const gamma = THREE.MathUtils.degToRad(e.gamma || 0);
-
-    const euler = new THREE.Euler(beta, alpha, -gamma, "YXZ");
+  window.addEventListener("deviceorientation", e=>{
+    const euler = new THREE.Euler(
+      THREE.MathUtils.degToRad(e.beta||0),
+      THREE.MathUtils.degToRad(e.alpha||0),
+      -THREE.MathUtils.degToRad(e.gamma||0),
+      "YXZ"
+    );
     deviceQuat.setFromEuler(euler);
   });
 
-  window.addEventListener("resize", onResize);
+  window.addEventListener("resize",()=>{
+    renderer.setSize(innerWidth,innerHeight);
+  });
 }
 
-function onResize() {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+// ===================== HAND FILTER (KALMAN SIMPLE) =====================
+function smoothHand(x,y,z){
+  const alpha = 0.25;
+
+  velocity.x = x - handSmoothed.x;
+  velocity.y = y - handSmoothed.y;
+  velocity.z = z - handSmoothed.z;
+
+  handSmoothed.x += velocity.x * alpha;
+  handSmoothed.y += velocity.y * alpha;
+  handSmoothed.z += velocity.z * alpha;
 }
 
-function animate() {
-  requestAnimationFrame(animate);
+// ===================== HAND TRACKING =====================
+function initHands(){
+  const video = document.getElementById("video");
 
-  updateGunFromHand();
-  updateTargets();
+  const hands = new Hands({
+    locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
 
-  renderVR();
+  hands.setOptions({
+    maxNumHands:1,
+    minDetectionConfidence:0.7,
+    minTrackingConfidence:0.7
+  });
+
+  hands.onResults(res=>{
+    if(res.multiHandLandmarks){
+      hand = res.multiHandLandmarks[0];
+    }
+  });
+
+  const cam = new Camera(video,{
+    onFrame: async ()=>{
+      await hands.send({image:video});
+    },
+    width:640,
+    height:480
+  });
+
+  cam.start();
 }
 
-function renderVR() {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+// ===================== AUDIO =====================
+function initAudio(){
+  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+}
+
+function playShot(){
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.frequency.value = 120;
+  g.gain.value = 0.2;
+  o.connect(g);
+  g.connect(audioCtx.destination);
+  o.start();
+  o.stop(audioCtx.currentTime+0.05);
+}
+
+// ===================== SHOOT =====================
+function shoot(){
+  playShot();
+  recoil = 0.2;
+
+  const ray = new THREE.Raycaster();
+  const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+
+  ray.set(camera.position, dir);
+
+  const hit = ray.intersectObjects(enemies);
+  if(hit.length){
+    hit[0].object.position.set(
+      (Math.random()-0.5)*10,
+      1,
+      -10-Math.random()*20
+    );
+  }
+}
+
+// ===================== AI ENEMY =====================
+function updateEnemies(){
+  enemies.forEach(e=>{
+    const dir = camera.position.clone().sub(e.position).normalize();
+    e.position.add(dir.multiplyScalar(e.userData.speed));
+
+    if(e.position.distanceTo(camera.position)<1.5){
+      e.position.z = -10;
+    }
+  });
+}
+
+// ===================== HAND CONTROL =====================
+function updateHand(){
+
+  if(!hand) return;
+
+  const wrist = hand[0];
+  const index = hand[8];
+  const thumb = hand[4];
+
+  const dx = index.x - wrist.x;
+  const dy = index.y - wrist.y;
+  const dz = Math.sqrt(dx*dx+dy*dy);
+
+  const x = (index.x-0.5)*4;
+  const y = -(index.y-0.5)*3+1.5;
+  const z = -dz*10;
+
+  smoothHand(x,y,z);
+
+  gun.position.set(
+    handSmoothed.x,
+    handSmoothed.y,
+    handSmoothed.z
+  );
+
+  gun.rotation.y = dx*2;
+  gun.rotation.x = -dy*2;
+
+  // recoil
+  gun.position.z += recoil;
+  recoil *= 0.9;
+
+  // pinch shoot
+  const pinch = Math.hypot(thumb.x-index.x, thumb.y-index.y);
+  if(pinch < 0.03) shoot();
+}
+
+// ===================== VR RENDER =====================
+function renderVR(){
+
+  const w = innerWidth;
+  const h = innerHeight;
 
   renderer.setScissorTest(true);
 
-  // olho esquerdo
-  renderer.setViewport(0, 0, w/2, h);
-  renderer.setScissor(0, 0, w/2, h);
-  camera.position.set(-0.03, 1.6, 3);
-  camera.quaternion.copy(deviceQuat);
-  renderer.render(scene, camera);
+  const eyes = [-ipd/2, ipd/2];
 
-  // olho direito
-  renderer.setViewport(w/2, 0, w/2, h);
-  renderer.setScissor(w/2, 0, w/2, h);
-  camera.position.set(0.03, 1.6, 3);
-  camera.quaternion.copy(deviceQuat);
-  renderer.render(scene, camera);
+  eyes.forEach((eye,i)=>{
+    camera.position.set(eye,1.6,3);
+    camera.quaternion.copy(deviceQuat);
+
+    renderer.setViewport(i*w/2,0,w/2,h);
+    renderer.setScissor(i*w/2,0,w/2,h);
+
+    renderer.render(scene,camera);
+  });
 
   renderer.setScissorTest(false);
 }
 
-function updateTargets() {
-  targets.forEach(t => {
-    t.rotation.y += 0.01;
-  });
-}
+// ===================== LOOP =====================
+function animate(){
+  requestAnimationFrame(animate);
 
-function updateGunFromHand() {
-  if (!handLandmarks) return;
+  updateHand();
+  updateEnemies();
 
-  // pontos principais da mão
-  const wrist = handLandmarks[0];
-  const index = handLandmarks[8];
-  const thumb = handLandmarks[4];
-
-  // profundidade estimada
-  const dx = index.x - wrist.x;
-  const dy = index.y - wrist.y;
-  const dist = Math.sqrt(dx*dx + dy*dy);
-
-  // posição normalizada para mundo 3D
-  const x = (index.x - 0.5) * 4;
-  const y = -(index.y - 0.5) * 3 + 1.5;
-  const z = -dist * 8;
-
-  gun.position.set(x, y, z);
-
-  // rotação baseada no vetor mão
-  gun.lookAt(x + dx*10, y - dy*10, z - 5);
-
-  // tiro simples (pinça)
-  const pinch = Math.sqrt(
-    Math.pow(thumb.x - index.x, 2) +
-    Math.pow(thumb.y - index.y, 2)
-  );
-
-  if (pinch < 0.03) {
-    shoot();
-  }
-}
-
-function shoot() {
-  const ray = new THREE.Raycaster();
-  const dir = new THREE.Vector3(0, 0, -1);
-  dir.applyQuaternion(gun.quaternion);
-
-  ray.set(gun.position, dir);
-
-  const hit = ray.intersectObjects(targets);
-  if (hit.length > 0) {
-    hit[0].object.position.z = -20 - Math.random()*20;
-  }
-}
-
-function initHandTracking() {
-  const videoElement = document.getElementById("video");
-
-  const hands = new Hands({
-    locateFile: (file) =>
-      `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-  });
-
-  hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.7
-  });
-
-  hands.onResults((results) => {
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-      handLandmarks = results.multiHandLandmarks[0];
-    }
-  });
-
-  const cameraMP = new Camera(videoElement, {
-    onFrame: async () => {
-      await hands.send({ image: videoElement });
-    },
-    width: 640,
-    height: 480
-  });
-
-  cameraMP.start();
+  renderVR();
 }
 
 </script>
-
 </body>
 </html>
