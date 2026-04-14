@@ -279,8 +279,11 @@
                 const y = -(wrist.y - 0.5) * 2;
                 const z = -wrist.z;
 
-                handGroup.position.set(x, y, -1 + z);
-
+                handGroup.position.set(
+                x * 1.5,
+                y * 1.5,
+                -2 + z * 2
+                );
                 // direção da arma
                 const dir = new THREE.Vector3(
                     indexTip.x - wrist.x,
@@ -329,6 +332,7 @@
                     canShoot = false;
                     setTimeout(() => canShoot = true, 250);
                 }
+                log("Mão detectada");
             }
         });
 
@@ -339,13 +343,7 @@
             width: 320,
             height: 240
         });
-        try {
-            cam.start();
-            log("Camera iniciada");
-        } catch(e){
-            log("Erro ao iniciar camera: " + e.message);
-        }
-
+        cam.start();
         /* ========================
            LOOP
         ======================== */
@@ -394,6 +392,10 @@
             requestAnimationFrame(animate);
             update();
             renderVR();
+            if(!handGroup.visible){
+                handGroup.visible = true;
+                handGroup.position.set(0, -0.5, -2);
+            }
         }
 
         animate();
