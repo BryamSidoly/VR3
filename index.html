@@ -1,438 +1,220 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
-
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VR Shooter OK</title>
-
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: black;
-        }
-
-        canvas {
-            display: block;
-        }
-
-        button {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 10;
-            padding: 10px;
-        }
-
-        #log {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            max-height: 40%;
-            overflow-y: auto;
-            background: rgba(0, 0, 0, 0.8);
-            color: #00ff00;
-            font-size: 12px;
-            font-family: monospace;
-            z-index: 9999;
-            padding: 5px;
-        }
-    </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.min.js"></script>
+<meta charset="utf-8">
+<title>VR Shooter</title>
+<style>
+body { margin:0; overflow:hidden; background:black; }
+canvas { display:block; }
+#hud {
+ position: absolute;
+ top: 10px;
+ left: 50%;
+ transform: translateX(-50%);
+ color: white;
+ font-family: monospace;
+ z-index: 10;
+}
+</style>
 </head>
-
 <body>
-    <div id="log"></div>
-
-    <button onclick="enableGyro()">Ativar Sensor</button>
-    <video id="video" autoplay playsinline style="display:none"></video>
-
-    <script>
-        const logDiv = document.getElementById("log");
-
-        function log(msg) {
-            console.log(msg);
-            const el = document.createElement("div");
-            el.textContent = typeof msg === "object" ? JSON.stringify(msg) : msg;
-            logDiv.appendChild(el);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        // intercepta console
-        const oldLog = console.log;
-        console.log = (...args) => {
-            oldLog(...args);
-            log(args.join(" "));
-        };
-
-        const oldError = console.error;
-        console.error = (...args) => {
-            oldError(...args);
-            log("ERRO: " + args.join(" "));
-        };
-
-        // erros globais
-        window.onerror = function (msg, src, line, col, err) {
-            log("JS ERROR: " + msg + " @ " + line);
-        };
-
-        // promises quebradas
-        window.onunhandledrejection = function (e) {
-            log("PROMISE ERROR: " + e.reason);
-        };
-
-        /* ========================
-           CENA
-        ======================== */
-
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x101020);
-
-        const renderer = new THREE.WebGLRenderer();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        /* ========================
-           PLAYER (HEAD)
-        ======================== */
-
-        const player = new THREE.Object3D();
-        scene.add(player);
-
-        const camLeft = new THREE.PerspectiveCamera(75, window.innerWidth / 2 / window.innerHeight, 0.1, 100);
-        const camRight = new THREE.PerspectiveCamera(75, window.innerWidth / 2 / window.innerHeight, 0.1, 100);
-
-        const eyeSep = 0.03;
-        player.add(camLeft);
-        player.add(camRight);
-
-        camLeft.position.x = -eyeSep;
-        camRight.position.x = eyeSep;
-
-        /* ========================
-           ARMA + BRAÇO
-        ======================== */
-
-        const handGroup = new THREE.Group();
-        player.add(handGroup);
-
-        // braço simples
-        const arm = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.05, 0.07, 0.5),
-            new THREE.MeshBasicMaterial({ color: 0x888888 })
-        );
-        arm.rotation.z = Math.PI / 2;
-        handGroup.add(arm);
-
-        // mão
-        const handMesh = new THREE.Mesh(
-            new THREE.SphereGeometry(0.08),
-            new THREE.MeshBasicMaterial({ color: 0xffcc99 })
-        );
-        handGroup.add(handMesh);
-
-        // arma
-        const gun = new THREE.Mesh(
-            new THREE.BoxGeometry(0.1, 0.1, 0.4),
-            new THREE.MeshBasicMaterial({ color: 0x222222 })
-        );
-        gun.position.z = -0.25;
-        handGroup.add(gun);
-
-        // laser
-        const laserMat = new THREE.LineBasicMaterial({ color: 0xff0000 });
-        const laserGeo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(0, 0, -10)
-        ]);
-        const laser = new THREE.Line(laserGeo, laserMat);
-        gun.add(laser);
-
-        // red dot
-        const dot = new THREE.Mesh(
-            new THREE.SphereGeometry(0.05),
-            new THREE.MeshBasicMaterial({ color: 0xff0000 })
-        );
-        scene.add(dot);
-
-        /* ========================
-           REFERÊNCIA VISUAL
-        ======================== */
-
-        // chão
-        const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(20, 20),
-            new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true })
-        );
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -1;
-        scene.add(floor);
-
-        // cubo central
-        const cube = new THREE.Mesh(
-            new THREE.BoxGeometry(),
-            new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-        );
-        cube.position.z = -3;
-        scene.add(cube);
-
-        /* ========================
-           INIMIGOS
-        ======================== */
-
-        const enemies = [];
-
-        function spawnEnemy() {
-            const e = new THREE.Mesh(
-                new THREE.SphereGeometry(0.2),
-                new THREE.MeshBasicMaterial({ color: 0xff0000 })
-            );
-
-            e.position.set(
-                (Math.random() - 0.5) * 4,
-                Math.random() * 2,
-                -Math.random() * 5 - 2
-            );
-
-            scene.add(e);
-            enemies.push(e);
-        }
-
-        setInterval(spawnEnemy, 1500);
-
-        /* ========================
-           TIRO
-        ======================== */
-
-        function createBullet(dir) {
-            const b = new THREE.Mesh(
-                new THREE.SphereGeometry(0.03),
-                new THREE.MeshBasicMaterial({ color: 0xffff00 })
-            );
-
-            b.position.copy(handGroup.position);
-
-            b.velocity = dir.clone().multiplyScalar(0.3);
-
-            scene.add(b);
-            bullets.push(b);
-
-            // remove depois de um tempo
-            setTimeout(() => {
-                scene.remove(b);
-                bullets.splice(bullets.indexOf(b), 1);
-            }, 2000);
-        }
-
-        const bullets = [];
-
-        function shootRay(dir) {
-
-            const origin = handGroup.position.clone();
-
-            const ray = new THREE.Raycaster(origin, dir);
-            const hits = ray.intersectObjects(enemies);
-
-            if (hits.length > 0) {
-                const e = hits[0].object;
-                hitEffect(hits[0].point); // NOVO
-                scene.remove(e);
-                enemies.splice(enemies.indexOf(e), 1);
-            }
-        }
-
-        function hitEffect(pos) {
-            const p = new THREE.Mesh(
-                new THREE.SphereGeometry(0.1),
-                new THREE.MeshBasicMaterial({ color: 0xffaa00 })
-            );
-
-            p.position.copy(pos);
-            scene.add(p);
-
-            setTimeout(() => scene.remove(p), 200);
-        }
-        /* ========================
-           SENSOR
-        ======================== */
-
-        function enableGyro() {
-            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(response => {
-                        if (response === 'granted') {
-                            window.addEventListener("deviceorientation", onGyro);
-                        }
-                    });
-            } else {
-                window.addEventListener("deviceorientation", onGyro);
-            }
-        }
-
-        function onGyro(e) {
-            const alpha = e.alpha * Math.PI / 180;
-            const beta = e.beta * Math.PI / 180;
-
-            player.rotation.set(beta, alpha, 0);
-        }
-
-        /* ========================
-           MEDIAPIPE (PINCH)
-        ======================== */
-
-        const video = document.getElementById("video");
-
-        const holistic = new Holistic({
-            locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${f}`
-        });
-
-        holistic.setOptions({
-            modelComplexity: 0
-        });
-
-        let canShoot = true;
-
-        holistic.onResults(r => {
-            if (r.rightHandLandmarks) {
-
-                const lm = r.rightHandLandmarks;
-
-                // pontos importantes
-                const wrist = lm[0];
-                const indexTip = lm[8];
-
-                // converter para espaço 3D simples
-                const x = (wrist.x - 0.5) * 2;
-                const y = -(wrist.y - 0.5) * 2;
-                const z = -wrist.z;
-
-                handGroup.position.set(
-                x * 1.5,
-                y * 1.5,
-                -2 + z * 2
-                );
-                // direção da arma
-                const dir = new THREE.Vector3(
-                    indexTip.x - wrist.x,
-                    -(indexTip.y - wrist.y),
-                    -0.5
-                ).normalize();
-
-                // rotação da arma
-                const target = new THREE.Vector3().addVectors(handGroup.position, dir);
-                gun.lookAt(target);
-
-                // LASER (raycast)
-                const raycaster = new THREE.Raycaster(handGroup.position, dir);
-                const intersects = raycaster.intersectObjects(enemies);
-
-                if (intersects.length > 0) {
-                    const hit = intersects[0];
-
-                    dot.position.copy(hit.point);
-
-                    // atualizar laser até o ponto
-                    laser.geometry.setFromPoints([
-                        new THREE.Vector3(0, 0, 0),
-                        gun.worldToLocal(hit.point.clone())
-                    ]);
-
-                } else {
-
-                    dot.position.copy(
-                        handGroup.position.clone().add(dir.clone().multiplyScalar(10))
-                    );
-
-                    laser.geometry.setFromPoints([
-                        new THREE.Vector3(0, 0, 0),
-                        new THREE.Vector3(0, 0, -10)
-                    ]);
-                }
-
-                // gesto de tiro (pinch)
-                const t = lm[4];
-                const i = lm[8];
-                const d = Math.hypot(t.x - i.x, t.y - i.y);
-
-                if (d < 0.05 && canShoot) {
-                    shootRay(dir);
-                    createBullet(dir); // NOVO
-                    canShoot = false;
-                    setTimeout(() => canShoot = true, 250);
-                };
-            }
-        });
-
-        const cam = new Camera(video, {
-            onFrame: async () => {
-                await holistic.send({ image: video });
-            },
-            width: 320,
-            height: 240
-        });
-        cam.start();
-        /* ========================
-           LOOP
-        ======================== */
-
-        function update() {
-
-            bullets.forEach(b => {
-                b.position.add(b.velocity);
-            });
-
-            bullets.forEach(b => {
-                enemies.forEach((e, i) => {
-                    if (b.getWorldPosition(new THREE.Vector3()).distanceTo(e.position) < 0.3) {
-                        scene.remove(e);
-                        enemies.splice(i, 1);
-                    }
-                });
-            });
-
-        }
-
-        /* ========================
-           RENDER VR (DIVIDIDO)
-        ======================== */
-
-        function renderVR() {
-
-            const w = window.innerWidth;
-            const h = window.innerHeight;
-
-            renderer.setScissorTest(true);
-
-            // esquerdo
-            renderer.setViewport(0, 0, w / 2, h);
-            renderer.setScissor(0, 0, w / 2, h);
-            renderer.render(scene, camLeft);
-
-            // direito
-            renderer.setViewport(w / 2, 0, w / 2, h);
-            renderer.setScissor(w / 2, 0, w / 2, h);
-            renderer.render(scene, camRight);
-
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            update();
-            renderVR();
-            if(!handGroup.visible){
-                handGroup.visible = true;
-                handGroup.position.set(0, -0.5, -2);
-            }
-        }
-
-        animate();
-
-    </script>
+<div id="hud">Score: 0</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+let scene = new THREE.Scene();
+
+let renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Stereo cameras
+let cameraL = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+let cameraR = cameraL.clone();
+
+let IPD = 0.03;
+
+// Basic light
+let light = new THREE.DirectionalLight(0xffffff,1);
+light.position.set(1,1,1);
+scene.add(light);
+
+// Gun (low poly)
+let gunGeo = new THREE.BoxGeometry(0.1,0.1,0.4);
+let gunMat = new THREE.MeshStandardMaterial({color:0x555555});
+let gun = new THREE.Mesh(gunGeo, gunMat);
+scene.add(gun);
+
+// Targets
+let targets = [];
+function spawnTarget(){
+ let geo = new THREE.BoxGeometry(0.3,0.3,0.3);
+ let mat = new THREE.MeshStandardMaterial({color:0xff0000});
+ let cube = new THREE.Mesh(geo,mat);
+ cube.position.set(
+  (Math.random()-0.5)*4,
+  (Math.random()-0.5)*2,
+  -Math.random()*5 - 2
+ );
+ scene.add(cube);
+ targets.push(cube);
+}
+setInterval(spawnTarget,2000);
+
+// Score
+let score = 0;
+let hud = document.getElementById("hud");
+
+// Raycaster
+let raycaster = new THREE.Raycaster();
+
+// Shoot
+function shoot(){
+ raycaster.setFromCamera(new THREE.Vector2(0,0), cameraL);
+ let intersects = raycaster.intersectObjects(targets);
+
+ if(intersects.length>0){
+  let obj = intersects[0].object;
+  scene.remove(obj);
+  targets = targets.filter(t=>t!==obj);
+  score++;
+  hud.innerText = "Score: " + score;
+ }
+}
+
+// Orientation
+let rotation = {alpha:0,beta:0,gamma:0};
+
+window.addEventListener("deviceorientation", e=>{
+ rotation.alpha = e.alpha || 0;
+ rotation.beta = e.beta || 0;
+ rotation.gamma = e.gamma || 0;
+});
+
+// Apply rotation
+function updateCamera(){
+ let euler = new THREE.Euler(
+  THREE.MathUtils.degToRad(rotation.beta),
+  THREE.MathUtils.degToRad(rotation.alpha),
+  -THREE.MathUtils.degToRad(rotation.gamma),
+  'YXZ'
+ );
+
+ cameraL.quaternion.setFromEuler(euler);
+ cameraR.quaternion.copy(cameraL.quaternion);
+
+ cameraL.position.set(-IPD,0,0);
+ cameraR.position.set(IPD,0,0);
+}
+
+// MediaPipe Hands
+let handClosed = false;
+
+const hands = new Hands({
+ locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+});
+
+hands.setOptions({
+ maxNumHands:1,
+ modelComplexity:0,
+ minDetectionConfidence:0.5,
+ minTrackingConfidence:0.5
+});
+
+hands.onResults(results=>{
+ if(results.multiHandLandmarks.length){
+  let lm = results.multiHandLandmarks[0];
+
+  let thumb = lm[4];
+  let index = lm[8];
+
+  let dist = Math.hypot(
+   thumb.x-index.x,
+   thumb.y-index.y
+  );
+
+  if(dist < 0.05){
+   if(!handClosed){
+    shoot();
+   }
+   handClosed = true;
+  } else {
+   handClosed = false;
+  }
+
+  // Position gun
+  let x = (lm[9].x - 0.5) * 2;
+  let y = -(lm[9].y - 0.5) * 2;
+
+  gun.position.set(x, y, -1);
+ }
+});
+
+// Camera input
+const video = document.createElement("video");
+
+const cam = new Camera(video,{
+ onFrame: async ()=>{
+  await hands.send({image: video});
+ },
+ width:640,
+ height:480
+});
+cam.start();
+
+// Fisheye shader (simple)
+const material = new THREE.ShaderMaterial({
+ uniforms: {
+  tDiffuse: { value: null }
+ },
+ vertexShader: `
+  varying vec2 vUv;
+  void main(){
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+  }
+ `,
+ fragmentShader: `
+  uniform sampler2D tDiffuse;
+  varying vec2 vUv;
+
+  void main(){
+    vec2 uv = vUv*2.0-1.0;
+    float r = length(uv);
+    uv = uv * (1.0 + 0.5 * r*r);
+    uv = uv*0.5+0.5;
+
+    gl_FragColor = texture2D(tDiffuse, uv);
+  }
+ `
+});
+
+// Render loop
+function animate(){
+ requestAnimationFrame(animate);
+
+ updateCamera();
+
+ renderer.setScissorTest(true);
+
+ let w = window.innerWidth;
+ let h = window.innerHeight;
+
+ // LEFT
+ renderer.setViewport(0,0,w/2,h);
+ renderer.setScissor(0,0,w/2,h);
+ renderer.render(scene, cameraL);
+
+ // RIGHT
+ renderer.setViewport(w/2,0,w/2,h);
+ renderer.setScissor(w/2,0,w/2,h);
+ renderer.render(scene, cameraR);
+}
+
+animate();
+</script>
 </body>
-
 </html>
