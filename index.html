@@ -38,6 +38,7 @@
         font-family:monospace;
         z-index:10;
         ">
+        Camera: loading...
     </div>
 
     <video id="camPreview" autoplay playsinline muted style="
@@ -58,10 +59,6 @@
     <script>
         const video = document.getElementById("camPreview");
         let scene = new THREE.Scene();
-
-        window.addEventListener("orientationchange", () => {
-            initialQuaternion = null;
-        });
 
         let worldRoot = new THREE.Object3D();
         scene.add(worldRoot);
@@ -156,68 +153,58 @@
         // Orientation
         let rotation = { alpha: 0, beta: 0, gamma: 0 };
 
-        function onOrient(e) {
+        window.addEventListener("deviceorientation", e => {
             rotation.alpha = e.alpha || 0;
             rotation.beta = e.beta || 0;
             rotation.gamma = e.gamma || 0;
-        }
-
-        //window.addEventListener("deviceorientationabsolute", onOrient);
-        //window.addEventListener("deviceorientation", onOrient);
+        });
 
         // Apply rotation
         let initialQuaternion = null;
 
-       function updateCamera() {
-    const alpha = THREE.MathUtils.degToRad(rotation.alpha || 0);
-    const beta  = THREE.MathUtils.degToRad(rotation.beta || 0);
-    const gamma = THREE.MathUtils.degToRad(rotation.gamma || 0);
+        function updateCamera() {
+            let alpha = THREE.MathUtils.degToRad(rotation.alpha);
+            let beta = THREE.MathUtils.degToRad(rotation.beta);
+            let gamma = THREE.MathUtils.degToRad(rotation.gamma);
 
-    // 1. rotação do sensor
-    const deviceQuat = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(beta, alpha, -gamma, 'YXZ')
-    );
+            // ordem correta do device
+            let euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            let deviceQuat = new THREE.Quaternion().setFromEuler(euler);
 
-    // 2. correção eixo do device
-    const deviceFix = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(1, 0, 0),
-        -Math.PI / 2
-    );
+            let correctionQuat = new THREE.Quaternion();
+            correctionQuat.setFromAxisAngle(
+                new THREE.Vector3(1, 0, 0),
+                -Math.PI / 2
+            );
 
-    deviceQuat.multiply(deviceFix);
+            deviceQuat.multiply(correctionQuat);
 
-    // 3. rotação da tela (landscape/portrait)
-    const angle = (screen.orientation?.angle || 0);
-    const screenQuat = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        -THREE.MathUtils.degToRad(angle)
-    );
+            // 🔥 rotação da tela (landscape vs portrait)
+            let screenAngle = screen.orientation ? screen.orientation.angle : window.orientation || 0;
 
-    // IMPORTANTE: aplicar screen ANTES de fixar referência inicial
-    const worldQuat = deviceQuat.clone();
-    worldQuat.multiply(screenQuat);
+            let screenQuat = new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(0, 0, 1),
+                -THREE.MathUtils.degToRad(screenAngle)
+            );
 
-    // 4. fixar referência inicial UMA vez
-    if (!initialQuaternion) {
-        initialQuaternion = worldQuat.clone().invert();
-    }
+            deviceQuat.multiply(screenQuat);
 
-    worldQuat.multiply(initialQuaternion);
+            // calibração inicial
+            if (!initialQuaternion) {
+                initialQuaternion = deviceQuat.clone().invert();
+            }
 
-    // aplicar câmera
-    cameraL.quaternion.copy(worldQuat);
-    cameraR.quaternion.copy(worldQuat);
+            deviceQuat.multiply(initialQuaternion);
 
-    // posição IPD
-    const base = new THREE.Vector3(0, 0, 0);
+            cameraL.quaternion.copy(deviceQuat);
+            cameraR.quaternion.copy(deviceQuat);
 
-    cameraL.position.copy(base)
-        .add(new THREE.Vector3(-IPD, 0, 0).applyQuaternion(worldQuat));
+            let offsetL = new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat);
+            let offsetR = new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat);
 
-    cameraR.position.copy(base)
-        .add(new THREE.Vector3(IPD, 0, 0).applyQuaternion(worldQuat));
-}
-
+            cameraL.position.copy(offsetL);
+            cameraR.position.copy(offsetR);
+        }
         // MediaPipe Hands
         let handClosed = false;
 
@@ -271,9 +258,11 @@
 
                 handPos.multiplyScalar(1.2);
 
+                handPos.applyQuaternion(cameraL.quaternion);
+                handPos.add(cameraL.position);
+
                 // suavização
                 gun.position.lerp(handPos, 0.15);
-
 
                 // ===== ROTAÇÃO BASEADA NA MÃO =====
                 let wrist = lm[0];
