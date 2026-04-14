@@ -179,7 +179,6 @@
 
             deviceQuat.multiply(correctionQuat);
 
-            // 🔥 rotação da tela (landscape vs portrait)
             let screenAngle = screen.orientation ? screen.orientation.angle : window.orientation || 0;
 
             let screenQuat = new THREE.Quaternion().setFromAxisAngle(
@@ -205,6 +204,7 @@
             cameraL.position.copy(offsetL);
             cameraR.position.copy(offsetR);
         }
+
         // MediaPipe Hands
         let handClosed = false;
 
@@ -240,7 +240,6 @@
                     handClosed = false;
                 }
 
-                // ===== POSIÇÃO LIVRE (independente da câmera) =====
                 if (!gun.userData.initialized) {
                     let forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraL.quaternion);
 
@@ -261,13 +260,10 @@
                 handPos.applyQuaternion(cameraL.quaternion);
                 handPos.add(cameraL.position);
 
-                // suavização
                 gun.position.lerp(handPos, 0.15);
 
-                // ===== ROTAÇÃO BASEADA NA MÃO =====
                 let wrist = lm[0];
                 let middle = lm[12];
-                // usa o MESMO index já declarado acima
 
                 let forwardDir = new THREE.Vector3(
                     index.x - wrist.x,
@@ -289,7 +285,6 @@
 
                 let targetQuat = new THREE.Quaternion().setFromRotationMatrix(mat);
 
-                // suavização
                 gun.quaternion.slerp(targetQuat, 0.25);
 
             }
@@ -307,7 +302,7 @@
                     camLabel.innerText = "Camera: " + (settings.facingMode || "Traseira Ativa");
                 }
             },
-            // Esta é a linha principal que o MediaPipe usa para escolher a câmera
+
             facingMode: "environment",
             width: 640,
             height: 480
