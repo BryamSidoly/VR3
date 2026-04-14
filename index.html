@@ -59,6 +59,10 @@
         const video = document.getElementById("camPreview");
         let scene = new THREE.Scene();
 
+        window.addEventListener("orientationchange", () => {
+            initialQuaternion = null;
+        });
+        
         let worldRoot = new THREE.Object3D();
         scene.add(worldRoot);
 
@@ -158,34 +162,34 @@
 
 
 
-// ===============================
-// SIMULADOR DE SENSOR (PC)
-// ===============================
-let mock = { alpha: 0, beta: 0, gamma: 0 };
+        // ===============================
+        // SIMULADOR DE SENSOR (PC)
+        // ===============================
+        let mock = { alpha: 0, beta: 0, gamma: 0 };
 
-let isDown = false;
+        let isDown = false;
 
-window.addEventListener("mousedown", () => isDown = true);
-window.addEventListener("mouseup", () => isDown = false);
+        window.addEventListener("mousedown", () => isDown = true);
+        window.addEventListener("mouseup", () => isDown = false);
 
-let yaw = 0;
-let pitch = 0;
+        let yaw = 0;
+        let pitch = 0;
 
-window.addEventListener("mousemove", (e) => {
-    if (!isDown) return;
+        window.addEventListener("mousemove", (e) => {
+            if (!isDown) return;
 
-    yaw   += e.movementX * 0.002;
-    pitch += e.movementY * 0.002;
-});
+            yaw += e.movementX * 0.002;
+            pitch += e.movementY * 0.002;
+        });
 
-// substitui leitura real pelo mock (APENAS PARA TESTE)
-function onOrientMock() {
-    rotation.alpha = THREE.MathUtils.radToDeg(yaw);
-    rotation.beta  = THREE.MathUtils.radToDeg(pitch);
-    rotation.gamma = 0;
-}
+        // substitui leitura real pelo mock (APENAS PARA TESTE)
+        function onOrientMock() {
+            rotation.alpha = THREE.MathUtils.radToDeg(yaw);
+            rotation.beta = THREE.MathUtils.radToDeg(pitch);
+            rotation.gamma = 0;
+        }
 
-setInterval(onOrientMock, 16);
+        setInterval(onOrientMock, 16);
 
 
 
@@ -207,70 +211,55 @@ setInterval(onOrientMock, 16);
         // Apply rotation
         let initialQuaternion = null;
 
-        function updateCamera() {
-            const alpha = THREE.MathUtils.degToRad(rotation.alpha || 0);
-            const beta = THREE.MathUtils.degToRad(rotation.beta || 0);
-            const gamma = THREE.MathUtils.degToRad(rotation.gamma || 0);
+       function updateCamera() {
+    const alpha = THREE.MathUtils.degToRad(rotation.alpha || 0);
+    const beta  = THREE.MathUtils.degToRad(rotation.beta || 0);
+    const gamma = THREE.MathUtils.degToRad(rotation.gamma || 0);
 
-            const deviceQuat = new THREE.Quaternion();
+    // 1. rotação do sensor
+    const deviceQuat = new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(beta, alpha, -gamma, 'YXZ')
+    );
 
-            // Ordem correta para device orientation moderna
-            deviceQuat.setFromEuler(
-                new THREE.Euler(beta, alpha, -gamma, 'YXZ')
-            );
+    // 2. correção eixo do device
+    const deviceFix = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(1, 0, 0),
+        -Math.PI / 2
+    );
 
-            // CORREÇÃO CRÍTICA DE EIXO (o que está te causando o “giro errado”)
-            // troca eixo do sensor (mobile) para eixo do Three.js
-            const correction = new THREE.Quaternion();
-            correction.setFromAxisAngle(
-                new THREE.Vector3(1, 0, 0),
-                -Math.PI / 2
-            );
+    deviceQuat.multiply(deviceFix);
 
-            deviceQuat.premultiply(correction);
+    // 3. rotação da tela (landscape/portrait)
+    const angle = (screen.orientation?.angle || 0);
+    const screenQuat = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        -THREE.MathUtils.degToRad(angle)
+    );
 
-            // screen rotation separada (só se NÃO estiver travado em landscape)
-            const screenAngle = (screen.orientation?.angle || 0);
-            const screenQuat = new THREE.Quaternion();
-            screenQuat.setFromAxisAngle(
-                new THREE.Vector3(0, 0, 1),
-                -THREE.MathUtils.degToRad(screenAngle)
-            );
+    // IMPORTANTE: aplicar screen ANTES de fixar referência inicial
+    const worldQuat = deviceQuat.clone();
+    worldQuat.multiply(screenQuat);
 
-            deviceQuat.premultiply(screenQuat);
+    // 4. fixar referência inicial UMA vez
+    if (!initialQuaternion) {
+        initialQuaternion = worldQuat.clone().invert();
+    }
 
-            if (!initialQuaternion) {
-                initialQuaternion = deviceQuat.clone().invert();
-            }
+    worldQuat.multiply(initialQuaternion);
 
-            deviceQuat.premultiply(initialQuaternion);
+    // aplicar câmera
+    cameraL.quaternion.copy(worldQuat);
+    cameraR.quaternion.copy(worldQuat);
 
-            cameraL.quaternion.copy(deviceQuat);
-            cameraR.quaternion.copy(deviceQuat);
+    // posição IPD
+    const base = new THREE.Vector3(0, 0, 0);
 
-            const base = new THREE.Vector3();
+    cameraL.position.copy(base)
+        .add(new THREE.Vector3(-IPD, 0, 0).applyQuaternion(worldQuat));
 
-            cameraL.position.copy(base);
-            cameraR.position.copy(base);
-
-            cameraL.position.add(new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat));
-            cameraR.position.add(new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat));
-
-            cameraL.getWorldPosition(window.__camPos = new THREE.Vector3());
-cameraL.getWorldQuaternion(window.__camQuat = new THREE.Quaternion());
-
-console.log(
-    "POS:",
-    window.__camPos.x.toFixed(3),
-    window.__camPos.y.toFixed(3),
-    window.__camPos.z.toFixed(3),
-    "ROT:",
-    window.__camQuat.x.toFixed(3),
-    window.__camQuat.y.toFixed(3),
-    window.__camQuat.z.toFixed(3),
-    window.__camQuat.w.toFixed(3)
-);
-        }
+    cameraR.position.copy(base)
+        .add(new THREE.Vector3(IPD, 0, 0).applyQuaternion(worldQuat));
+}
 
         // MediaPipe Hands
         let handClosed = false;
