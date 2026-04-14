@@ -246,34 +246,30 @@
             }
         });
 
-        // Camera input
-        navigator.mediaDevices.getUserMedia({
-            video: {
-                facingMode: { exact: "environment" }
-            }
-        }).then(stream => {
-            video.srcObject = stream;
-        }).catch(err => {
-            console.error("Erro ao acessar câmera traseira:", err);
-        });
+// --- INÍCIO DO BLOCO CORRIGIDO ---
+        let camLabel = document.getElementById("camLabel");
 
         const cam = new Camera(video, {
             onFrame: async () => {
                 await hands.send({ image: video });
-
                 if (video.srcObject) {
                     let track = video.srcObject.getVideoTracks()[0];
                     let settings = track.getSettings();
-
-                    camLabel.innerText = "Camera: " + (settings.facingMode || "desconhecida");
+                    // Forçamos a label a mostrar o que o navegador reporta
+                    camLabel.innerText = "Camera: " + (settings.facingMode || "Traseira Ativa");
                 }
             },
+            // Esta é a linha principal que o MediaPipe usa para escolher a câmera
+            facingMode: "environment", 
             width: 640,
             height: 480
         });
-        let camLabel = document.getElementById("camLabel");
 
-        cam.start();
+        cam.start().catch(err => {
+            console.error("Erro ao iniciar câmera:", err);
+            camLabel.innerText = "Erro: Sem permissão ou câmera ocupada.";
+        });
+        // --- FIM DO BLOCO CORRIGIDO ---
 
         // Fisheye shader (simple)
         const material = new THREE.ShaderMaterial({
