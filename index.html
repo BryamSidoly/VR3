@@ -246,16 +246,17 @@
             }
         });
 
-        // 1. Configuração de restrições para câmera traseira
-        const constraints = {
+        // Camera input
+        navigator.mediaDevices.getUserMedia({
             video: {
-                facingMode: "environment", // "environment" foca na traseira
-                width: { ideal: 640 },
-                height: { ideal: 480 }
+                facingMode: { exact: "environment" }
             }
-        };
+        }).then(stream => {
+            video.srcObject = stream;
+        }).catch(err => {
+            console.error("Erro ao acessar câmera traseira:", err);
+        });
 
-        // 2. Inicialização do MediaPipe Camera Utils com as mesmas restrições
         const cam = new Camera(video, {
             onFrame: async () => {
                 await hands.send({ image: video });
@@ -263,24 +264,16 @@
                 if (video.srcObject) {
                     let track = video.srcObject.getVideoTracks()[0];
                     let settings = track.getSettings();
-                    camLabel.innerText = "Camera: " + (settings.facingMode || "traseira (focada)");
+
+                    camLabel.innerText = "Camera: " + (settings.facingMode || "desconhecida");
                 }
             },
-            // Passamos o facingMode aqui para o MediaPipe não sobrescrever
-            facingMode: "environment", 
             width: 640,
             height: 480
         });
-
         let camLabel = document.getElementById("camLabel");
 
-        // Iniciar a câmera
-        cam.start().catch(err => {
-            console.error("Erro ao acessar câmera:", err);
-            // Fallback caso o 'environment' exato falhe
-            navigator.mediaDevices.getUserMedia({ video: true })
-                .then(stream => video.srcObject = stream);
-        });
+        cam.start();
 
         // Fisheye shader (simple)
         const material = new THREE.ShaderMaterial({
