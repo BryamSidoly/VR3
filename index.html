@@ -60,6 +60,9 @@
         const video = document.getElementById("camPreview");
         let scene = new THREE.Scene();
 
+        let worldRoot = new THREE.Object3D();
+        scene.add(worldRoot);
+
         let renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
@@ -84,7 +87,7 @@
         let gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
         let gunMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
         let gun = new THREE.Mesh(gunGeo, gunMat);
-        scene.add(gun);
+        worldRoot.add(gun);
 
         // Laser beam
         let laserMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
@@ -129,7 +132,13 @@
 
         // Shoot
         function shoot() {
-            raycaster.setFromCamera(new THREE.Vector2(0, 0), cameraL);
+            let origin = new THREE.Vector3();
+            let direction = new THREE.Vector3();
+
+            gun.getWorldPosition(origin);
+            gun.getWorldDirection(direction);
+
+            raycaster.set(origin, direction);
             let intersects = raycaster.intersectObjects(targets);
 
             if (intersects.length > 0) {
@@ -151,19 +160,43 @@
         });
 
         // Apply rotation
+        let initialQuaternion = null;
+
         function updateCamera() {
-            let euler = new THREE.Euler(
-                THREE.MathUtils.degToRad(rotation.beta),
-                THREE.MathUtils.degToRad(rotation.alpha),
-                -THREE.MathUtils.degToRad(rotation.gamma),
-                'YXZ'
+            let alpha = THREE.MathUtils.degToRad(rotation.alpha);
+            let beta = THREE.MathUtils.degToRad(rotation.beta);
+            let gamma = THREE.MathUtils.degToRad(rotation.gamma);
+
+            // orientação do device
+            let euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            let deviceQuat = new THREE.Quaternion().setFromEuler(euler);
+
+            // corrigir eixo da câmera (MUITO importante)
+            let screenQuat = new THREE.Quaternion();
+            let screenAngle = window.orientation || 0;
+            screenQuat.setFromAxisAngle(
+                new THREE.Vector3(0, 0, 1),
+                -THREE.MathUtils.degToRad(screenAngle)
             );
 
-            cameraL.quaternion.setFromEuler(euler);
-            cameraR.quaternion.copy(cameraL.quaternion);
+            deviceQuat.multiply(screenQuat);
 
-            cameraL.position.set(-IPD, 0, 0);
-            cameraR.position.set(IPD, 0, 0);
+            // calibração inicial (fixa o "norte")
+            if (!initialQuaternion) {
+                initialQuaternion = deviceQuat.clone().invert();
+            }
+
+            deviceQuat.multiply(initialQuaternion);
+
+            cameraL.quaternion.copy(deviceQuat);
+            cameraR.quaternion.copy(deviceQuat);
+
+            // posição correta das câmeras (IPD lateral no espaço da câmera)
+            let offsetL = new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat);
+            let offsetR = new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat);
+
+            cameraL.position.copy(offsetL);
+            cameraR.position.copy(offsetR);
         }
 
         // MediaPipe Hands
@@ -201,52 +234,59 @@
                     handClosed = false;
                 }
 
-                // ===== BASE VR (arma presa ao corpo) =====
-                let baseOffset = new THREE.Vector3(0.3, -0.3, -0.6); // canto inferior direito
+                // ===== POSIÇÃO LIVRE (independente da câmera) =====
+                if (!gun.userData.initialized) {
+                    let forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraL.quaternion);
 
-                // Movimento da mão (offset relativo)
-                let handOffset = new THREE.Vector3(
-                    (lm[9].x - 0.5) * 0.5,
-                    -(lm[9].y - 0.5) * 0.5,
-                    (lm[9].z || 0) * 0.5
+                    gun.position.copy(cameraL.position)
+                        .add(forward.multiplyScalar(1));
+
+                    gun.userData.initialized = true;
+                }
+
+                let handPos = new THREE.Vector3(
+                    (lm[9].x - 0.5),
+                    -(lm[9].y - 0.5),
+                    -(lm[9].z || 0)
                 );
 
-                // Rotaciona offset junto com a cabeça
-                handOffset.applyQuaternion(cameraL.quaternion);
-                baseOffset.applyQuaternion(cameraL.quaternion);
+                handPos.multiplyScalar(1.2);
 
-                // posição final
-                gun.position.copy(cameraL.position)
-                    .add(baseOffset)
-                    .add(handOffset);
+                // suavização
+                gun.position.lerp(handPos, 0.15);
 
-                // ===== ORIENTAÇÃO DA MÃO =====
 
-                // ponto da palma
+                // ===== ROTAÇÃO BASEADA NA MÃO =====
                 let wrist = lm[0];
-
-                // ponto do dedo médio (direção frontal da mão)
                 let middle = lm[12];
+                // usa o MESMO index já declarado acima
 
-                // vetor direção da mão
-                let dir = new THREE.Vector3(
+                let forwardDir = new THREE.Vector3(
+                    index.x - wrist.x,
+                    -(index.y - wrist.y),
+                    -(index.z - wrist.z)
+                ).normalize();
+
+                let side = new THREE.Vector3(
                     middle.x - wrist.x,
                     -(middle.y - wrist.y),
                     -(middle.z - wrist.z)
                 ).normalize();
 
-                // vetor base forward
-                let forward = new THREE.Vector3(0, 0, -1);
+                let up = new THREE.Vector3().crossVectors(forwardDir, side).normalize();
+                side.crossVectors(up, forwardDir).normalize();
 
-                // quaternion de rotação
-                let quat = new THREE.Quaternion().setFromUnitVectors(forward, dir);
+                let mat = new THREE.Matrix4();
+                mat.makeBasis(side, up, forwardDir);
 
-                // aplica rotação na arma
-                gun.quaternion.slerp(quat, 0.5);
+                let targetQuat = new THREE.Quaternion().setFromRotationMatrix(mat);
+
+                // suavização
+                gun.quaternion.slerp(targetQuat, 0.25);
+
             }
         });
 
-// --- INÍCIO DO BLOCO CORRIGIDO ---
         let camLabel = document.getElementById("camLabel");
 
         const cam = new Camera(video, {
@@ -260,7 +300,7 @@
                 }
             },
             // Esta é a linha principal que o MediaPipe usa para escolher a câmera
-            facingMode: "environment", 
+            facingMode: "environment",
             width: 640,
             height: 480
         });
@@ -269,7 +309,6 @@
             console.error("Erro ao iniciar câmera:", err);
             camLabel.innerText = "Erro: Sem permissão ou câmera ocupada.";
         });
-        // --- FIM DO BLOCO CORRIGIDO ---
 
         // Fisheye shader (simple)
         const material = new THREE.ShaderMaterial({
@@ -277,25 +316,25 @@
                 tDiffuse: { value: null }
             },
             vertexShader: `
-  varying vec2 vUv;
-  void main(){
-    vUv = uv;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
-  }
- `,
+            varying vec2 vUv;
+            void main(){
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+            }
+            `,
             fragmentShader: `
-  uniform sampler2D tDiffuse;
-  varying vec2 vUv;
+            uniform sampler2D tDiffuse;
+            varying vec2 vUv;
 
-  void main(){
-    vec2 uv = vUv*2.0-1.0;
-    float r = length(uv);
-    uv = uv * (1.0 + 0.5 * r*r);
-    uv = uv*0.5+0.5;
+            void main(){
+                vec2 uv = vUv*2.0-1.0;
+                float r = length(uv);
+                uv = uv * (1.0 + 0.5 * r*r);
+                uv = uv*0.5+0.5;
 
-    gl_FragColor = texture2D(tDiffuse, uv);
-  }
- `
+                gl_FragColor = texture2D(tDiffuse, uv);
+            }
+            `
         });
 
         // Render loop
