@@ -152,14 +152,57 @@
         // Orientation
         let rotation = { alpha: 0, beta: 0, gamma: 0 };
 
+
+
+
+
+
+
+// ===============================
+// SIMULADOR DE SENSOR (PC)
+// ===============================
+let mock = { alpha: 0, beta: 0, gamma: 0 };
+
+let isDown = false;
+
+window.addEventListener("mousedown", () => isDown = true);
+window.addEventListener("mouseup", () => isDown = false);
+
+let yaw = 0;
+let pitch = 0;
+
+window.addEventListener("mousemove", (e) => {
+    if (!isDown) return;
+
+    yaw   += e.movementX * 0.002;
+    pitch += e.movementY * 0.002;
+});
+
+// substitui leitura real pelo mock (APENAS PARA TESTE)
+function onOrientMock() {
+    rotation.alpha = THREE.MathUtils.radToDeg(yaw);
+    rotation.beta  = THREE.MathUtils.radToDeg(pitch);
+    rotation.gamma = 0;
+}
+
+setInterval(onOrientMock, 16);
+
+
+
+
+
+
+
+
+
         function onOrient(e) {
             rotation.alpha = e.alpha || 0;
             rotation.beta = e.beta || 0;
             rotation.gamma = e.gamma || 0;
         }
 
-        window.addEventListener("deviceorientationabsolute", onOrient);
-        window.addEventListener("deviceorientation", onOrient);
+        //window.addEventListener("deviceorientationabsolute", onOrient);
+        //window.addEventListener("deviceorientation", onOrient);
 
         // Apply rotation
         let initialQuaternion = null;
@@ -212,6 +255,21 @@
 
             cameraL.position.add(new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat));
             cameraR.position.add(new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat));
+
+            cameraL.getWorldPosition(window.__camPos = new THREE.Vector3());
+cameraL.getWorldQuaternion(window.__camQuat = new THREE.Quaternion());
+
+console.log(
+    "POS:",
+    window.__camPos.x.toFixed(3),
+    window.__camPos.y.toFixed(3),
+    window.__camPos.z.toFixed(3),
+    "ROT:",
+    window.__camQuat.x.toFixed(3),
+    window.__camQuat.y.toFixed(3),
+    window.__camQuat.z.toFixed(3),
+    window.__camQuat.w.toFixed(3)
+);
         }
 
         // MediaPipe Hands
