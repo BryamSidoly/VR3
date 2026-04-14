@@ -167,21 +167,29 @@
             let beta = THREE.MathUtils.degToRad(rotation.beta);
             let gamma = THREE.MathUtils.degToRad(rotation.gamma);
 
-            // orientação do device
+            // ordem correta do device
             let euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
             let deviceQuat = new THREE.Quaternion().setFromEuler(euler);
 
-            // corrigir eixo da câmera (MUITO importante)
-            let screenQuat = new THREE.Quaternion();
-            let screenAngle = window.orientation || 0;
-            screenQuat.setFromAxisAngle(
+            let correctionQuat = new THREE.Quaternion();
+            correctionQuat.setFromAxisAngle(
+                new THREE.Vector3(1, 0, 0),
+                -Math.PI / 2
+            );
+
+            deviceQuat.multiply(correctionQuat);
+
+            // 🔥 rotação da tela (landscape vs portrait)
+            let screenAngle = screen.orientation ? screen.orientation.angle : window.orientation || 0;
+
+            let screenQuat = new THREE.Quaternion().setFromAxisAngle(
                 new THREE.Vector3(0, 0, 1),
                 -THREE.MathUtils.degToRad(screenAngle)
             );
 
             deviceQuat.multiply(screenQuat);
 
-            // calibração inicial (fixa o "norte")
+            // calibração inicial
             if (!initialQuaternion) {
                 initialQuaternion = deviceQuat.clone().invert();
             }
@@ -191,14 +199,12 @@
             cameraL.quaternion.copy(deviceQuat);
             cameraR.quaternion.copy(deviceQuat);
 
-            // posição correta das câmeras (IPD lateral no espaço da câmera)
             let offsetL = new THREE.Vector3(-IPD, 0, 0).applyQuaternion(deviceQuat);
             let offsetR = new THREE.Vector3(IPD, 0, 0).applyQuaternion(deviceQuat);
 
             cameraL.position.copy(offsetL);
             cameraR.position.copy(offsetR);
         }
-
         // MediaPipe Hands
         let handClosed = false;
 
@@ -252,9 +258,11 @@
 
                 handPos.multiplyScalar(1.2);
 
+                handPos.applyQuaternion(cameraL.quaternion);
+                handPos.add(cameraL.position);
+
                 // suavização
                 gun.position.lerp(handPos, 0.15);
-
 
                 // ===== ROTAÇÃO BASEADA NA MÃO =====
                 let wrist = lm[0];
