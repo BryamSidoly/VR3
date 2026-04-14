@@ -247,6 +247,16 @@
         });
 
         // Camera input
+        navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: { exact: "environment" }
+            }
+        }).then(stream => {
+            video.srcObject = stream;
+        }).catch(err => {
+            console.error("Erro ao acessar câmera traseira:", err);
+        });
+
         const cam = new Camera(video, {
             onFrame: async () => {
                 await hands.send({ image: video });
@@ -259,8 +269,7 @@
                 }
             },
             width: 640,
-            height: 480,
-            facingMode: "environment" // 👈 AQUI É A CHAVE
+            height: 480
         });
         let camLabel = document.getElementById("camLabel");
 
