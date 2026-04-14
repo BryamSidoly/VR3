@@ -1,228 +1,248 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="utf-8">
-<title>VR Shooter</title>
-<style>
-body { margin:0; overflow:hidden; background:black; }
-canvas { display:block; }
-#hud {
- position: absolute;
- top: 10px;
- left: 50%;
- transform: translateX(-50%);
- color: white;
- font-family: monospace;
- z-index: 10;
-}
-</style>
+    <meta charset="utf-8">
+    <title>VR Shooter</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: black;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #hud {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-family: monospace;
+            z-index: 10;
+        }
+    </style>
 </head>
+
 <body>
-<div id="hud">Score: 0</div>
+    <div id="hud">Score: 0</div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.152/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-<script>
-let scene = new THREE.Scene();
+    <script>
+        let scene = new THREE.Scene();
 
-let renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+        let renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-// Stereo cameras
-let cameraL = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-let cameraR = cameraL.clone();
+        // Stereo cameras
+        let cameraL = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        let cameraR = cameraL.clone();
 
-let IPD = 0.03;
+        let IPD = 0.03;
 
-// Basic light
-let light = new THREE.DirectionalLight(0xffffff,1);
-light.position.set(1,1,1);
-scene.add(light);
+        // Basic light
+        let light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(1, 1, 1);
+        scene.add(light);
 
-// Gun (low poly)
-let gunGeo = new THREE.BoxGeometry(0.1,0.1,0.4);
-let gunMat = new THREE.MeshStandardMaterial({color:0x555555});
-let gun = new THREE.Mesh(gunGeo, gunMat);
-scene.add(gun);
+        // Gun (low poly)
+        let gunGeo = new THREE.BoxGeometry(0.1, 0.1, 0.4);
+        let gunMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        let gun = new THREE.Mesh(gunGeo, gunMat);
+        scene.add(gun);
 
-// Laser beam
-let laserMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
+        // Laser beam
+        let laserMaterial = new THREE.LineBasicMaterial({ color: 0xff0000 });
 
-let laserPoints = [
- new THREE.Vector3(),
- new THREE.Vector3(0,0,-5)
-];
+        let laserPoints = [
+            new THREE.Vector3(),
+            new THREE.Vector3(0, 0, -5)
+        ];
 
-let laserGeometry = new THREE.BufferGeometry().setFromPoints(laserPoints);
-let laser = new THREE.Line(laserGeometry, laserMaterial);
-scene.add(laser);
+        let laserGeometry = new THREE.BufferGeometry().setFromPoints(laserPoints);
+        let laser = new THREE.Line(laserGeometry, laserMaterial);
+        scene.add(laser);
 
-// Impact point (mira)
-let crosshairGeo = new THREE.SphereGeometry(0.03, 8, 8);
-let crosshairMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-let crosshair = new THREE.Mesh(crosshairGeo, crosshairMat);
-scene.add(crosshair);
+        // Impact point (mira)
+        let crosshairGeo = new THREE.SphereGeometry(0.03, 8, 8);
+        let crosshairMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        let crosshair = new THREE.Mesh(crosshairGeo, crosshairMat);
+        scene.add(crosshair);
 
-// Targets
-let targets = [];
-function spawnTarget(){
- let geo = new THREE.BoxGeometry(0.3,0.3,0.3);
- let mat = new THREE.MeshStandardMaterial({color:0xff0000});
- let cube = new THREE.Mesh(geo,mat);
- cube.position.set(
-  (Math.random()-0.5)*4,
-  (Math.random()-0.5)*2,
-  -Math.random()*5 - 2
- );
- scene.add(cube);
- targets.push(cube);
-}
-setInterval(spawnTarget,2000);
+        // Targets
+        let targets = [];
+        function spawnTarget() {
+            let geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+            let mat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+            let cube = new THREE.Mesh(geo, mat);
+            cube.position.set(
+                (Math.random() - 0.5) * 4,
+                (Math.random() - 0.5) * 2,
+                -Math.random() * 5 - 2
+            );
+            scene.add(cube);
+            targets.push(cube);
+        }
+        setInterval(spawnTarget, 2000);
 
-// Score
-let score = 0;
-let hud = document.getElementById("hud");
+        // Score
+        let score = 0;
+        let hud = document.getElementById("hud");
 
-// Raycaster
-let raycaster = new THREE.Raycaster();
+        // Raycaster
+        let raycaster = new THREE.Raycaster();
 
-// Shoot
-function shoot(){
- raycaster.setFromCamera(new THREE.Vector2(0,0), cameraL);
- let intersects = raycaster.intersectObjects(targets);
+        // Shoot
+        function shoot() {
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), cameraL);
+            let intersects = raycaster.intersectObjects(targets);
 
- if(intersects.length>0){
-  let obj = intersects[0].object;
-  scene.remove(obj);
-  targets = targets.filter(t=>t!==obj);
-  score++;
-  hud.innerText = "Score: " + score;
- }
-}
+            if (intersects.length > 0) {
+                let obj = intersects[0].object;
+                scene.remove(obj);
+                targets = targets.filter(t => t !== obj);
+                score++;
+                hud.innerText = "Score: " + score;
+            }
+        }
 
-// Orientation
-let rotation = {alpha:0,beta:0,gamma:0};
+        // Orientation
+        let rotation = { alpha: 0, beta: 0, gamma: 0 };
 
-window.addEventListener("deviceorientation", e=>{
- rotation.alpha = e.alpha || 0;
- rotation.beta = e.beta || 0;
- rotation.gamma = e.gamma || 0;
-});
+        window.addEventListener("deviceorientation", e => {
+            rotation.alpha = e.alpha || 0;
+            rotation.beta = e.beta || 0;
+            rotation.gamma = e.gamma || 0;
+        });
 
-// Apply rotation
-function updateCamera(){
- let euler = new THREE.Euler(
-  THREE.MathUtils.degToRad(rotation.beta),
-  THREE.MathUtils.degToRad(rotation.alpha),
-  -THREE.MathUtils.degToRad(rotation.gamma),
-  'YXZ'
- );
+        // Apply rotation
+        function updateCamera() {
+            let euler = new THREE.Euler(
+                THREE.MathUtils.degToRad(rotation.beta),
+                THREE.MathUtils.degToRad(rotation.alpha),
+                -THREE.MathUtils.degToRad(rotation.gamma),
+                'YXZ'
+            );
 
- cameraL.quaternion.setFromEuler(euler);
- cameraR.quaternion.copy(cameraL.quaternion);
+            cameraL.quaternion.setFromEuler(euler);
+            cameraR.quaternion.copy(cameraL.quaternion);
 
- cameraL.position.set(-IPD,0,0);
- cameraR.position.set(IPD,0,0);
-}
+            cameraL.position.set(-IPD, 0, 0);
+            cameraR.position.set(IPD, 0, 0);
+        }
 
-// MediaPipe Hands
-let handClosed = false;
+        // MediaPipe Hands
+        let handClosed = false;
 
-const hands = new Hands({
- locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-});
+        const hands = new Hands({
+            locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
 
-hands.setOptions({
- maxNumHands:1,
- modelComplexity:0,
- minDetectionConfidence:0.5,
- minTrackingConfidence:0.5
-});
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
 
-hands.onResults(results=>{
- if(results.multiHandLandmarks.length){
-  let lm = results.multiHandLandmarks[0];
+        hands.onResults(results => {
+            if (results.multiHandLandmarks.length) {
+                let lm = results.multiHandLandmarks[0];
 
-  let thumb = lm[4];
-  let index = lm[8];
+                let thumb = lm[4];
+                let index = lm[8];
 
-  let dist = Math.hypot(
-   thumb.x-index.x,
-   thumb.y-index.y
-  );
+                let dist = Math.hypot(
+                    thumb.x - index.x,
+                    thumb.y - index.y
+                );
 
-  if(dist < 0.05){
-   if(!handClosed){
-    shoot();
-   }
-   handClosed = true;
-  } else {
-   handClosed = false;
-  }
+                if (dist < 0.05) {
+                    if (!handClosed) {
+                        shoot();
+                    }
+                    handClosed = true;
+                } else {
+                    handClosed = false;
+                }
 
-// Posição livre (sem centralização rígida)
-let x = (lm[9].x - 0.5) * 2;
-let y = -(lm[9].y - 0.5) * 2;
-let z = -1 + (lm[9].z || 0) * 2;
+                // ===== BASE VR (arma presa ao corpo) =====
+                let baseOffset = new THREE.Vector3(0.3, -0.3, -0.6); // canto inferior direito
 
-gun.position.set(x, y, z);
+                // Movimento da mão (offset relativo)
+                let handOffset = new THREE.Vector3(
+                (lm[9].x - 0.5) * 0.5,
+                -(lm[9].y - 0.5) * 0.5,
+                (lm[9].z || 0) * 0.5
+                );
 
-// ===== ORIENTAÇÃO DA MÃO =====
+                // Rotaciona offset junto com a cabeça
+                handOffset.applyQuaternion(cameraL.quaternion);
+                baseOffset.applyQuaternion(cameraL.quaternion);
 
-// ponto da palma
-let wrist = lm[0];
+                // posição final
+                gun.position.copy(cameraL.position)
+                .add(baseOffset)
+                .add(handOffset);
 
-// ponto do dedo médio (direção frontal da mão)
-let middle = lm[12];
+                // ===== ORIENTAÇÃO DA MÃO =====
 
-// vetor direção da mão
-let dir = new THREE.Vector3(
- middle.x - wrist.x,
- -(middle.y - wrist.y),
- -(middle.z - wrist.z)
-).normalize();
+                // ponto da palma
+                let wrist = lm[0];
 
-// vetor base forward
-let forward = new THREE.Vector3(0,0,-1);
+                // ponto do dedo médio (direção frontal da mão)
+                let middle = lm[12];
 
-// quaternion de rotação
-let quat = new THREE.Quaternion().setFromUnitVectors(forward, dir);
+                // vetor direção da mão
+                let dir = new THREE.Vector3(
+                    middle.x - wrist.x,
+                    -(middle.y - wrist.y),
+                    -(middle.z - wrist.z)
+                ).normalize();
 
-// aplica rotação na arma
-gun.quaternion.slerp(quat, 0.5);
+                // vetor base forward
+                let forward = new THREE.Vector3(0, 0, -1);
 
-  gun.position.set(x, y, -1);
- }
-});
+                // quaternion de rotação
+                let quat = new THREE.Quaternion().setFromUnitVectors(forward, dir);
 
-// Camera input
-const video = document.createElement("video");
+                // aplica rotação na arma
+                gun.quaternion.slerp(quat, 0.5);
+            }
+        });
 
-const cam = new Camera(video,{
- onFrame: async ()=>{
-  await hands.send({image: video});
- },
- width:640,
- height:480
-});
-cam.start();
+        // Camera input
+        const video = document.createElement("video");
 
-// Fisheye shader (simple)
-const material = new THREE.ShaderMaterial({
- uniforms: {
-  tDiffuse: { value: null }
- },
- vertexShader: `
+        const cam = new Camera(video, {
+            onFrame: async () => {
+                await hands.send({ image: video });
+            },
+            width: 640,
+            height: 480
+        });
+        cam.start();
+
+        // Fisheye shader (simple)
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                tDiffuse: { value: null }
+            },
+            vertexShader: `
   varying vec2 vUv;
   void main(){
     vUv = uv;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
   }
  `,
- fragmentShader: `
+            fragmentShader: `
   uniform sampler2D tDiffuse;
   varying vec2 vUv;
 
@@ -235,59 +255,60 @@ const material = new THREE.ShaderMaterial({
     gl_FragColor = texture2D(tDiffuse, uv);
   }
  `
-});
+        });
 
-// Render loop
-function animate(){
- requestAnimationFrame(animate);
+        // Render loop
+        function animate() {
+            requestAnimationFrame(animate);
 
- updateCamera();
+            updateCamera();
 
- // Atualizar laser e mira
-let origin = new THREE.Vector3();
-let direction = new THREE.Vector3();
+            // Atualizar laser e mira
+            let origin = new THREE.Vector3();
+            let direction = new THREE.Vector3();
 
-gun.getWorldPosition(origin);
+            gun.getWorldPosition(origin);
 
-// direção baseada na câmera (onde você olha)
-gun.getWorldPosition(origin);
-gun.getWorldDirection(direction);
+            // direção baseada na câmera (onde você olha)
+            gun.getWorldPosition(origin);
+            gun.getWorldDirection(direction);
 
-raycaster.set(origin, direction);
+            raycaster.set(origin, direction);
 
-let intersects = raycaster.intersectObjects(targets);
+            let intersects = raycaster.intersectObjects(targets);
 
-let endPoint;
+            let endPoint;
 
-if(intersects.length > 0){
- endPoint = intersects[0].point;
-} else {
- endPoint = origin.clone().add(direction.multiplyScalar(10));
-}
+            if (intersects.length > 0) {
+                endPoint = intersects[0].point;
+            } else {
+                endPoint = origin.clone().add(direction.multiplyScalar(10));
+            }
 
-// Atualiza laser
-laser.geometry.setFromPoints([origin, endPoint]);
+            // Atualiza laser
+            laser.geometry.setFromPoints([origin, endPoint]);
 
-// Atualiza mira
-crosshair.position.copy(endPoint);
+            // Atualiza mira
+            crosshair.position.copy(endPoint);
 
- renderer.setScissorTest(true);
+            renderer.setScissorTest(true);
 
- let w = window.innerWidth;
- let h = window.innerHeight;
+            let w = window.innerWidth;
+            let h = window.innerHeight;
 
- // LEFT
- renderer.setViewport(0,0,w/2,h);
- renderer.setScissor(0,0,w/2,h);
- renderer.render(scene, cameraL);
+            // LEFT
+            renderer.setViewport(0, 0, w / 2, h);
+            renderer.setScissor(0, 0, w / 2, h);
+            renderer.render(scene, cameraL);
 
- // RIGHT
- renderer.setViewport(w/2,0,w/2,h);
- renderer.setScissor(w/2,0,w/2,h);
- renderer.render(scene, cameraR);
-}
+            // RIGHT
+            renderer.setViewport(w / 2, 0, w / 2, h);
+            renderer.setScissor(w / 2, 0, w / 2, h);
+            renderer.render(scene, cameraR);
+        }
 
-animate();
-</script>
+        animate();
+    </script>
 </body>
+
 </html>
