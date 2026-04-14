@@ -295,6 +295,8 @@
 
                 handAnchor.position.lerp(handPos, 0.4);
 
+                handAnchor.quaternion.copy(cameraL.quaternion);
+
                 if (isPinching(lm) && !isGrabbing) {
 
                     let distance = gun.position.distanceTo(handAnchor.position);
@@ -322,41 +324,12 @@
                     let targetPos = handAnchor.position.clone()
                         .add(grabOffsetPos.clone().applyQuaternion(handAnchor.quaternion));
 
-                    gun.position.lerp(targetPos, 0.6);
+                    gun.position.lerp(targetPos, 0.7);
 
                     let targetQuat = handAnchor.quaternion.clone().multiply(grabOffsetQuat);
 
-                    gun.quaternion.slerp(targetQuat, 0.6);
-
+                    gun.quaternion.slerp(targetQuat, 0.7);
                 }
-
-
-                let middle = lm[12];
-                // usa o MESMO index já declarado acima
-
-                let forwardDir = new THREE.Vector3(
-                    index.x - wrist.x,
-                    -(index.y - wrist.y),
-                    -(index.z - wrist.z)
-                ).normalize();
-
-                let side = new THREE.Vector3(
-                    middle.x - wrist.x,
-                    -(middle.y - wrist.y),
-                    -(middle.z - wrist.z)
-                ).normalize();
-
-                let up = new THREE.Vector3().crossVectors(forwardDir, side).normalize();
-                side.crossVectors(up, forwardDir).normalize();
-
-                let mat = new THREE.Matrix4();
-                mat.makeBasis(side, up, forwardDir);
-
-                let targetQuat = new THREE.Quaternion().setFromRotationMatrix(mat);
-
-                // suavização
-                gun.quaternion.slerp(targetQuat, 0.25);
-
             }
         });
 
