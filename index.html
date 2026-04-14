@@ -249,23 +249,18 @@
         // Camera input
         const cam = new Camera(video, {
             onFrame: async () => {
-                // MediaPipe
                 await hands.send({ image: video });
 
-                // Detectar qual câmera está ativa
                 if (video.srcObject) {
                     let track = video.srcObject.getVideoTracks()[0];
                     let settings = track.getSettings();
 
-                    if (settings.facingMode === "environment") {
-                        camLabel.innerText = "Camera: traseira";
-                    } else {
-                        camLabel.innerText = "Camera: frontal";
-                    }
+                    camLabel.innerText = "Camera: " + (settings.facingMode || "desconhecida");
                 }
             },
             width: 640,
-            height: 480
+            height: 480,
+            facingMode: "environment" // 👈 AQUI É A CHAVE
         });
         let camLabel = document.getElementById("camLabel");
 
