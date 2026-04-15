@@ -57,6 +57,10 @@
         let handLandmarks = null;
         let screenAngle = 0;
         let deviceQuat = new THREE.Quaternion();
+        const zee = new THREE.Vector3(0, 0, 1);
+        const euler = new THREE.Euler();
+        const q0 = new THREE.Quaternion();
+        const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
         init();
         animate();
@@ -158,12 +162,19 @@
                 targets.push(t);
             }
 
-            window.addEventListener("deviceorientation", (e) => {
-                const alpha = THREE.MathUtils.degToRad(e.alpha || 0);
-                const beta = THREE.MathUtils.degToRad(e.beta || 0);
-                const gamma = THREE.MathUtils.degToRad(e.gamma || 0);
-                const euler = new THREE.Euler(beta, alpha, -gamma, "ZXY");
+            window.addEventListener("deviceorientation", (event) => {
+                const alpha = THREE.MathUtils.degToRad(event.alpha || 0);
+                const beta = THREE.MathUtils.degToRad(event.beta || 0);
+                const gamma = THREE.MathUtils.degToRad(event.gamma || 0);
+                const orient = THREE.MathUtils.degToRad(
+                    screen.orientation?.angle || window.orientation || 0
+                );
+
+                euler.set(beta, alpha, -gamma, "YXZ");
+
                 deviceQuat.setFromEuler(euler);
+                deviceQuat.multiply(q1);
+                deviceQuat.multiply(q0.setFromAxisAngle(zee, -orient));
             });
         }
 
