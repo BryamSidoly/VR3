@@ -128,24 +128,65 @@
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
 
-            // Arma (modelo simples)
-            gun = new THREE.Group();
+// ===== CORPO PRESO NA CAMERA =====
+const body = new THREE.Group();
+body.position.set(0, -0.5, 0);
+camera.add(body);
 
-            const body = new THREE.Mesh(
-                new THREE.BoxGeometry(0.3, 0.1, 0.8),
-                new THREE.MeshStandardMaterial({ color: 0x333333 })
-            );
+// ===== HIERARQUIA DO BRAÇO =====
+const shoulder = new THREE.Group();
+const arm = new THREE.Group();
+const forearm = new THREE.Group();
+const hand = new THREE.Group();
 
-            const barrel = new THREE.Mesh(
-                new THREE.BoxGeometry(0.1, 0.1, 0.6),
-                new THREE.MeshStandardMaterial({ color: 0x777777 })
-            );
+body.add(shoulder);
+shoulder.add(arm);
+arm.add(forearm);
+forearm.add(hand);
 
-            barrel.position.z = -0.7;
-            gun.add(body);
-            gun.add(barrel);
+// posição base (lado direito)
+shoulder.position.set(0.25, 0.2, -0.2);
+arm.position.set(0, -0.3, 0);
+forearm.position.set(0, -0.3, 0);
+hand.position.set(0, -0.2, 0);
 
-            scene.add(gun);
+gun = hand; // arma agora é a mão
+
+// ===== VISUAL SIMPLES =====
+function createLimb(length, color) {
+    return new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, length),
+        new THREE.MeshStandardMaterial({ color })
+    );
+}
+
+const upperArmMesh = createLimb(0.3, 0x8888ff);
+upperArmMesh.position.y = -0.15;
+arm.add(upperArmMesh);
+
+const forearmMesh = createLimb(0.3, 0x4444ff);
+forearmMesh.position.y = -0.15;
+forearm.add(forearmMesh);
+
+// ===== ARMA =====
+const gunBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.1, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0x333333 })
+);
+
+const barrel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 0.1, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x777777 })
+);
+
+barrel.position.z = -0.7;
+
+gun.add(gunBody);
+gun.add(barrel);
+
+// salva referência global (IMPORTANTE)
+window.shoulder = shoulder;
+window.forearm = forearm;
 
             // Alvos
             for (let i = 0; i < 10; i++) {
@@ -238,10 +279,16 @@
             const y = (0.5 - handLandmarks[8].y) * 3 + 1.5;
             const z = -dist * 8;
 
-            gun.position.set(x, y, z);
+const target = new THREE.Vector3(x, y, z);
 
-            // rotação baseada no vetor mão
-            gun.lookAt(x + dx * 10, y - dy * 10, z - 5);
+// converte para espaço do mundo
+camera.localToWorld(target);
+
+// braço aponta pro alvo
+shoulder.lookAt(target);
+
+// dobra cotovelo fake
+forearm.rotation.x = -0.5;
 
             // tiro simples (pinça)
             const pinch = Math.sqrt(
