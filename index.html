@@ -42,10 +42,7 @@
 
 <body>
 
-    <div id="ui">
-        VR Shooter - Hand Tracking<br>
-        Ammo: <span id="ammo">6</span>
-    </div>
+    <div id="ui">VR Shooter - Hand Tracking</div>
     <video id="video" autoplay playsinline></video>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -60,32 +57,30 @@
         let handLandmarks = null;
         let screenAngle = 0;
         let deviceQuat = new THREE.Quaternion();
-        let ammo = 6;
-        let maxAmmo = 6;
-        let isReloading = false;
-        let lastShotTime = 0;
-        const fireRate = 300;
+
         const zee = new THREE.Vector3(0, 0, 1);
         const euler = new THREE.Euler();
         const q0 = new THREE.Quaternion();
         const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
+        let ammo = 10;
+        let maxAmmo = 10;
+        let canShoot = true;
+        let shootCooldown = 200;
+        let isReloading = false;
+        let recoil = 0;
+        let recoilRecover = 0.9;
+        let reloadProgress = 0;
+
         init();
         animate();
         initHandTracking();
 
-        function updateUI() {
-            document.getElementById("ammo").innerText = ammo;
-        }
-
-        // Corrige landscape (topo esquerda)
         function rotatePoint(x, y, angle) {
             const cx = 0.5;
             const cy = 0.5;
-
             const dx = x - cx;
             const dy = y - cy;
-
             const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
             const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
 
@@ -98,7 +93,6 @@
         function updateScreenAngle() {
             const angle = screen.orientation?.angle ?? window.orientation ?? 0;
 
-            // normalização consistente para MediaPipe
             if (angle === 90) screenAngle = Math.PI / 2;
             else if (angle === -90 || angle === 270) screenAngle = -Math.PI / 2;
             else if (angle === 180 || angle === -180) screenAngle = Math.PI;
@@ -112,7 +106,6 @@
         setTimeout(updateScreenAngle, 300);
 
         function init() {
-            updateUI();
             scene = new THREE.Scene();
             window.addEventListener("resize", onResize);
 
@@ -125,14 +118,12 @@
             renderer.outputColorSpace = THREE.SRGBColorSpace;
             document.body.appendChild(renderer.domElement);
 
-            // Luz
             const light = new THREE.DirectionalLight(0xffffff, 1);
             light.position.set(5, 10, 5);
             scene.add(light);
 
             scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 
-            // Chão
             const floor = new THREE.Mesh(
                 new THREE.PlaneGeometry(50, 50),
                 new THREE.MeshStandardMaterial({ color: 0x222222 })
@@ -140,8 +131,6 @@
 
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
-
-            // Arma (modelo simples)
             gun = new THREE.Group();
 
             const body = new THREE.Mesh(
@@ -160,7 +149,6 @@
 
             scene.add(gun);
 
-            // Alvos
             for (let i = 0; i < 10; i++) {
                 const t = new THREE.Mesh(
                     new THREE.SphereGeometry(0.2, 16, 16),
@@ -202,22 +190,27 @@
             updateTargets();
 
             renderVR();
+            recoil *= recoilRecover;
+            gun.position.z += recoil;
+
+            updateReload();
+            updateUI();
+        }
+
+        function updateUI() {
+            document.getElementById("ui").innerText =
+                `Ammo: ${ammo}/${maxAmmo} ${isReloading ? " | Reloading..." : ""}`;
         }
 
         function renderVR() {
             const w = window.innerWidth;
             const h = window.innerHeight;
-
             renderer.setScissorTest(true);
-
-            // olho esquerdo
             renderer.setViewport(0, 0, w / 2, h);
             renderer.setScissor(0, 0, w / 2, h);
             camera.position.set(-0.03, 1.6, 3);
             camera.quaternion.copy(deviceQuat);
             renderer.render(scene, camera);
-
-            // olho direito
             renderer.setViewport(w / 2, 0, w / 2, h);
             renderer.setScissor(w / 2, 0, w / 2, h);
             camera.position.set(0.03, 1.6, 3);
@@ -235,100 +228,87 @@
 
         function updateGunFromHand() {
             if (!handLandmarks) return;
-
-            // pontos principais da mão
             const wrist = handLandmarks[0];
             const index = handLandmarks[8];
             const thumb = handLandmarks[4];
-
-            // profundidade estimada
             const dx = index.x - wrist.x;
             const dy = index.y - wrist.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-
-            // posição normalizada para mundo 3D
             const x = (handLandmarks[8].x - 0.5) * 4;
             const y = (0.5 - handLandmarks[8].y) * 3 + 1.5;
             const z = -dist * 8;
 
             gun.position.set(x, y, z);
 
-            // rotação baseada no vetor mão
             gun.lookAt(x + dx * 10, y - dy * 10, z - 5);
 
-            // gesto de tiro (pinça)
+            // pinch = tiro
             const pinch = Math.sqrt(
                 Math.pow(thumb.x - index.x, 2) +
                 Math.pow(thumb.y - index.y, 2)
             );
 
-            // recarga (mão aberta)
-            if (isHandOpen(handLandmarks)) {
-                reload();
-                return;
+            // mão aberta = reload
+            const middle = handLandmarks[12];
+            const ring = handLandmarks[16];
+
+            const openHand =
+                Math.abs(index.y - middle.y) < 0.05 &&
+                Math.abs(middle.y - ring.y) < 0.05;
+
+            // DISPARO
+            if (pinch < 0.03) {
+                shoot();
             }
 
-            // tiro com cooldown
-            if (pinch < 0.03) {
-                const now = performance.now();
-
-                if (now - lastShotTime > fireRate) {
-                    shoot();
-                    lastShotTime = now;
-                }
+            // RELOAD
+            if (openHand) {
+                startReload();
             }
         }
 
-function shoot() {
-    if (ammo <= 0 || isReloading) return;
+        function shoot() {
+            if (!canShoot || isReloading || ammo <= 0) return;
 
-    ammo--;
-    updateUI();
+            canShoot = false;
+            ammo--;
+            recoil = 0.15;
 
-    const ray = new THREE.Raycaster();
-    const dir = new THREE.Vector3(0, 0, -1);
-    dir.applyQuaternion(gun.quaternion);
+            const ray = new THREE.Raycaster();
+            const dir = new THREE.Vector3(0, 0, -1);
+            dir.applyQuaternion(gun.quaternion);
 
-    ray.set(gun.position, dir);
+            ray.set(gun.position, dir);
 
-    const hit = ray.intersectObjects(targets);
-    if (hit.length > 0) {
-        hit[0].object.position.z = -20 - Math.random() * 20;
-    }
+            const hit = ray.intersectObjects(targets);
+            if (hit.length > 0) {
+                hit[0].object.position.z = -20 - Math.random() * 20;
+            }
 
-    // feedback simples
-    console.log("Tiro! Ammo:", ammo);
-}
+            setTimeout(() => {
+                canShoot = true;
+            }, shootCooldown);
+        }
 
-function reload() {
-    if (isReloading || ammo === maxAmmo) return;
+        function startReload() {
+            if (isReloading || ammo === maxAmmo) return;
 
-    isReloading = true;
-    console.log("Recarregando...");
+            isReloading = true;
+            reloadProgress = 0;
+        }
 
-    setTimeout(() => {
-        ammo = maxAmmo;
-        isReloading = false;
-        updateUI();
-        console.log("Recarregado!");
-    }, 1000); // tempo de recarga
-}
+        function updateReload() {
+            if (!isReloading) return;
 
-        function isHandOpen(lm) {
-            const tips = [8, 12, 16, 20]; // pontas dos dedos
-            const wrist = lm[0];
+            reloadProgress += 0.05;
 
-            let totalDist = 0;
+            // animação: arma desce e volta
+            gun.position.y -= 0.02;
 
-            tips.forEach(i => {
-                const dx = lm[i].x - wrist.x;
-                const dy = lm[i].y - wrist.y;
-                totalDist += Math.sqrt(dx * dx + dy * dy);
-            });
-
-            const avg = totalDist / tips.length;
-
-            return avg > 0.25; // ajustável
+            if (reloadProgress >= 1) {
+                ammo = maxAmmo;
+                isReloading = false;
+            }
         }
 
         function initHandTracking() {
@@ -344,7 +324,7 @@ function reload() {
                 modelComplexity: 1,
                 minDetectionConfidence: 0.7,
                 minTrackingConfidence: 0.7,
-                selfieMode: false // IMPORTANTE: desliga espelhamento automático
+                selfieMode: false
             });
 
             hands.onResults((results) => {
@@ -364,16 +344,13 @@ function reload() {
                 }
             });
 
-            // =========================
-            // CÂMERA TRASEIRA FORÇADA
-            // =========================
             const cameraMP = new Camera(videoElement, {
                 onFrame: async () => {
                     await hands.send({ image: videoElement });
                 },
                 width: 640,
                 height: 480,
-                facingMode: "environment" // <<< ISSO É O PRINCIPAL
+                facingMode: "environment"
             });
 
             cameraMP.start();
