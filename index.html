@@ -42,7 +42,10 @@
 
 <body>
 
-    <div id="ui">VR Shooter - Hand Tracking</div>
+    <div id="ui">
+        VR Shooter - Hand Tracking<br>
+        Ammo: <span id="ammo">6</span>
+    </div>
     <video id="video" autoplay playsinline></video>
 
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
@@ -57,6 +60,11 @@
         let handLandmarks = null;
         let screenAngle = 0;
         let deviceQuat = new THREE.Quaternion();
+        let ammo = 6;
+        let maxAmmo = 6;
+        let isReloading = false;
+        let lastShotTime = 0;
+        const fireRate = 300;
         const zee = new THREE.Vector3(0, 0, 1);
         const euler = new THREE.Euler();
         const q0 = new THREE.Quaternion();
@@ -65,6 +73,10 @@
         init();
         animate();
         initHandTracking();
+
+        function updateUI() {
+            document.getElementById("ammo").innerText = ammo;
+        }
 
         // Corrige landscape (topo esquerda)
         function rotatePoint(x, y, angle) {
@@ -100,6 +112,7 @@
         setTimeout(updateScreenAngle, 300);
 
         function init() {
+            updateUI();
             scene = new THREE.Scene();
             window.addEventListener("resize", onResize);
 
@@ -128,65 +141,24 @@
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
 
-// ===== CORPO PRESO NA CAMERA =====
-const body = new THREE.Group();
-body.position.set(0, -0.5, 0);
-camera.add(body);
+            // Arma (modelo simples)
+            gun = new THREE.Group();
 
-// ===== HIERARQUIA DO BRAÇO =====
-const shoulder = new THREE.Group();
-const arm = new THREE.Group();
-const forearm = new THREE.Group();
-const hand = new THREE.Group();
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(0.3, 0.1, 0.8),
+                new THREE.MeshStandardMaterial({ color: 0x333333 })
+            );
 
-body.add(shoulder);
-shoulder.add(arm);
-arm.add(forearm);
-forearm.add(hand);
+            const barrel = new THREE.Mesh(
+                new THREE.BoxGeometry(0.1, 0.1, 0.6),
+                new THREE.MeshStandardMaterial({ color: 0x777777 })
+            );
 
-// posição base (lado direito)
-shoulder.position.set(0.25, 0.2, -0.2);
-arm.position.set(0, -0.3, 0);
-forearm.position.set(0, -0.3, 0);
-hand.position.set(0, -0.2, 0);
+            barrel.position.z = -0.7;
+            gun.add(body);
+            gun.add(barrel);
 
-gun = hand; // arma agora é a mão
-
-// ===== VISUAL SIMPLES =====
-function createLimb(length, color) {
-    return new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, length),
-        new THREE.MeshStandardMaterial({ color })
-    );
-}
-
-const upperArmMesh = createLimb(0.3, 0x8888ff);
-upperArmMesh.position.y = -0.15;
-arm.add(upperArmMesh);
-
-const forearmMesh = createLimb(0.3, 0x4444ff);
-forearmMesh.position.y = -0.15;
-forearm.add(forearmMesh);
-
-// ===== ARMA =====
-const gunBody = new THREE.Mesh(
-    new THREE.BoxGeometry(0.3, 0.1, 0.8),
-    new THREE.MeshStandardMaterial({ color: 0x333333 })
-);
-
-const barrel = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.1, 0.6),
-    new THREE.MeshStandardMaterial({ color: 0x777777 })
-);
-
-barrel.position.z = -0.7;
-
-gun.add(gunBody);
-gun.add(barrel);
-
-// salva referência global (IMPORTANTE)
-window.shoulder = shoulder;
-window.forearm = forearm;
+            scene.add(gun);
 
             // Alvos
             for (let i = 0; i < 10; i++) {
@@ -279,39 +251,84 @@ window.forearm = forearm;
             const y = (0.5 - handLandmarks[8].y) * 3 + 1.5;
             const z = -dist * 8;
 
-const target = new THREE.Vector3(x, y, z);
+            gun.position.set(x, y, z);
 
-// converte para espaço do mundo
-camera.localToWorld(target);
+            // rotação baseada no vetor mão
+            gun.lookAt(x + dx * 10, y - dy * 10, z - 5);
 
-// braço aponta pro alvo
-shoulder.lookAt(target);
-
-// dobra cotovelo fake
-forearm.rotation.x = -0.5;
-
-            // tiro simples (pinça)
+            // gesto de tiro (pinça)
             const pinch = Math.sqrt(
                 Math.pow(thumb.x - index.x, 2) +
                 Math.pow(thumb.y - index.y, 2)
             );
 
+            // recarga (mão aberta)
+            if (isHandOpen(handLandmarks)) {
+                reload();
+                return;
+            }
+
+            // tiro com cooldown
             if (pinch < 0.03) {
-                shoot();
+                const now = performance.now();
+
+                if (now - lastShotTime > fireRate) {
+                    shoot();
+                    lastShotTime = now;
+                }
             }
         }
 
-        function shoot() {
-            const ray = new THREE.Raycaster();
-            const dir = new THREE.Vector3(0, 0, -1);
-            dir.applyQuaternion(gun.quaternion);
+function shoot() {
+    if (ammo <= 0 || isReloading) return;
 
-            ray.set(gun.position, dir);
+    ammo--;
+    updateUI();
 
-            const hit = ray.intersectObjects(targets);
-            if (hit.length > 0) {
-                hit[0].object.position.z = -20 - Math.random() * 20;
-            }
+    const ray = new THREE.Raycaster();
+    const dir = new THREE.Vector3(0, 0, -1);
+    dir.applyQuaternion(gun.quaternion);
+
+    ray.set(gun.position, dir);
+
+    const hit = ray.intersectObjects(targets);
+    if (hit.length > 0) {
+        hit[0].object.position.z = -20 - Math.random() * 20;
+    }
+
+    // feedback simples
+    console.log("Tiro! Ammo:", ammo);
+}
+
+function reload() {
+    if (isReloading || ammo === maxAmmo) return;
+
+    isReloading = true;
+    console.log("Recarregando...");
+
+    setTimeout(() => {
+        ammo = maxAmmo;
+        isReloading = false;
+        updateUI();
+        console.log("Recarregado!");
+    }, 1000); // tempo de recarga
+}
+
+        function isHandOpen(lm) {
+            const tips = [8, 12, 16, 20]; // pontas dos dedos
+            const wrist = lm[0];
+
+            let totalDist = 0;
+
+            tips.forEach(i => {
+                const dx = lm[i].x - wrist.x;
+                const dy = lm[i].y - wrist.y;
+                totalDist += Math.sqrt(dx * dx + dy * dy);
+            });
+
+            const avg = totalDist / tips.length;
+
+            return avg > 0.25; // ajustável
         }
 
         function initHandTracking() {
