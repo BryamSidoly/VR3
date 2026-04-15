@@ -55,15 +55,53 @@
         let gun, handMesh;
         let targets = [];
         let handLandmarks = null;
-
+        let screenAngle = 0;
         let deviceQuat = new THREE.Quaternion();
+        const zee = new THREE.Vector3(0, 0, 1);
+        const euler = new THREE.Euler();
+        const q0 = new THREE.Quaternion();
+        const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
 
         init();
         animate();
         initHandTracking();
 
+        // Corrige landscape (topo esquerda)
+        function rotatePoint(x, y, angle) {
+            const cx = 0.5;
+            const cy = 0.5;
+
+            const dx = x - cx;
+            const dy = y - cy;
+
+            const rx = dx * Math.cos(angle) - dy * Math.sin(angle);
+            const ry = dx * Math.sin(angle) + dy * Math.cos(angle);
+
+            return {
+                x: rx + cx,
+                y: ry + cy
+            };
+        }
+
+        function updateScreenAngle() {
+            const angle = screen.orientation?.angle ?? window.orientation ?? 0;
+
+            // normalização consistente para MediaPipe
+            if (angle === 90) screenAngle = Math.PI / 2;
+            else if (angle === -90 || angle === 270) screenAngle = -Math.PI / 2;
+            else if (angle === 180 || angle === -180) screenAngle = Math.PI;
+            else screenAngle = 0;
+        }
+
+        updateScreenAngle();
+        window.addEventListener("orientationchange", updateScreenAngle);
+        window.addEventListener("resize", updateScreenAngle);
+
+        setTimeout(updateScreenAngle, 300);
+
         function init() {
             scene = new THREE.Scene();
+            window.addEventListener("resize", onResize);
 
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
             camera.position.set(0, 1.6, 3);
@@ -86,6 +124,7 @@
                 new THREE.PlaneGeometry(50, 50),
                 new THREE.MeshStandardMaterial({ color: 0x222222 })
             );
+
             floor.rotation.x = -Math.PI / 2;
             scene.add(floor);
 
@@ -123,17 +162,20 @@
                 targets.push(t);
             }
 
-            // Sensor do celular
-            window.addEventListener("deviceorientation", (e) => {
-                const alpha = THREE.MathUtils.degToRad(e.alpha || 0);
-                const beta = THREE.MathUtils.degToRad(e.beta || 0);
-                const gamma = THREE.MathUtils.degToRad(e.gamma || 0);
+            window.addEventListener("deviceorientation", (event) => {
+                const alpha = THREE.MathUtils.degToRad(event.alpha || 0);
+                const beta = THREE.MathUtils.degToRad(event.beta || 0);
+                const gamma = THREE.MathUtils.degToRad(event.gamma || 0);
+                const orient = THREE.MathUtils.degToRad(
+                    screen.orientation?.angle || window.orientation || 0
+                );
 
-                const euler = new THREE.Euler(beta, alpha, -gamma, "YXZ");
+                euler.set(beta, alpha, -gamma, "YXZ");
+
                 deviceQuat.setFromEuler(euler);
+                deviceQuat.multiply(q1);
+                deviceQuat.multiply(q0.setFromAxisAngle(zee, -orient));
             });
-
-            window.addEventListener("resize", onResize);
         }
 
         function onResize() {
@@ -246,15 +288,15 @@
 
                     let lm = results.multiHandLandmarks[0];
 
-                    // =========================
-                    // CORREÇÃO DE ORIENTAÇÃO
-                    // =========================
-                    // Corrige landscape (topo esquerda)
-                    handLandmarks = lm.map(p => ({
-                        x: 1.0 - p.y,
-                        y: p.x,
-                        z: p.z
-                    }));
+                    handLandmarks = lm.map(p => {
+                        const r = rotatePoint(p.x, p.y, screenAngle);
+
+                        return {
+                            x: r.x,
+                            y: r.y,
+                            z: p.z
+                        };
+                    });
                 }
             });
 
