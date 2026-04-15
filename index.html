@@ -54,7 +54,7 @@
         let scene, camera, renderer;
         let gun, handMesh;
         let targets = [];
-        let handLandmarks = null;
+        let handsData = [];
         let screenAngle = 0;
         let deviceQuat = new THREE.Quaternion();
 
@@ -190,8 +190,12 @@
             updateTargets();
 
             renderVR();
+            // recoil posição
             recoil *= recoilRecover;
             gun.position.z += recoil;
+
+            // recoil rotação (kick pra cima)
+            gun.rotation.x -= recoil * 2;
 
             updateReload();
             updateUI();
@@ -227,43 +231,49 @@
         }
 
         function updateGunFromHand() {
-            if (!handLandmarks) return;
-            const wrist = handLandmarks[0];
-            const index = handLandmarks[8];
-            const thumb = handLandmarks[4];
+            if (handsData.length === 0) return;
+
+            const mainHand = handsData[0];
+
+            const wrist = mainHand[0];
+            const index = mainHand[8];
+            const thumb = mainHand[4];
+
             const dx = index.x - wrist.x;
             const dy = index.y - wrist.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const x = (handLandmarks[8].x - 0.5) * 4;
-            const y = (0.5 - handLandmarks[8].y) * 3 + 1.5;
+
+            const x = (index.x - 0.5) * 4;
+            const y = (0.5 - index.y) * 3 + 1.5;
             const z = -dist * 8;
 
             gun.position.set(x, y, z);
-
             gun.lookAt(x + dx * 10, y - dy * 10, z - 5);
 
-            // pinch = tiro
-            const pinch = Math.sqrt(
-                Math.pow(thumb.x - index.x, 2) +
-                Math.pow(thumb.y - index.y, 2)
+            // ===== TIRO (pinça) =====
+            const pinch = Math.hypot(
+                thumb.x - index.x,
+                thumb.y - index.y
             );
 
-            // mão aberta = reload
-            const middle = handLandmarks[12];
-            const ring = handLandmarks[16];
-
-            const openHand =
-                Math.abs(index.y - middle.y) < 0.05 &&
-                Math.abs(middle.y - ring.y) < 0.05;
-
-            // DISPARO
-            if (pinch < 0.03) {
+            if (pinch < 0.025) {
                 shoot();
             }
 
-            // RELOAD
-            if (openHand) {
-                startReload();
+            // ===== RELOAD (segunda mão abaixo da arma) =====
+            if (handsData.length > 1) {
+                const secondHand = handsData[1];
+                const secondIndex = secondHand[8];
+
+                const gunScreenY = index.y;
+
+                const isBelow = secondIndex.y > gunScreenY + 0.08;
+
+                const closeX = Math.abs(secondIndex.x - index.x) < 0.15;
+
+                if (isBelow && closeX) {
+                    startReload();
+                }
             }
         }
 
@@ -300,10 +310,11 @@
         function updateReload() {
             if (!isReloading) return;
 
-            reloadProgress += 0.05;
+            reloadProgress += 0.08;
 
-            // animação: arma desce e volta
-            gun.position.y -= 0.02;
+            // animação mais visível
+            gun.position.y -= 0.04;
+            gun.rotation.z += 0.02;
 
             if (reloadProgress >= 1) {
                 ammo = maxAmmo;
@@ -320,7 +331,7 @@
             });
 
             hands.setOptions({
-                maxNumHands: 1,
+                maxNumHands: 2,
                 modelComplexity: 1,
                 minDetectionConfidence: 0.7,
                 minTrackingConfidence: 0.7,
@@ -328,18 +339,17 @@
             });
 
             hands.onResults((results) => {
-                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                handsData = [];
 
-                    let lm = results.multiHandLandmarks[0];
+                if (results.multiHandLandmarks) {
+                    results.multiHandLandmarks.forEach(lm => {
 
-                    handLandmarks = lm.map(p => {
-                        const r = rotatePoint(p.x, p.y, screenAngle);
+                        const processed = lm.map(p => {
+                            const r = rotatePoint(p.x, p.y, screenAngle);
+                            return { x: r.x, y: r.y, z: p.z };
+                        });
 
-                        return {
-                            x: r.x,
-                            y: r.y,
-                            z: p.z
-                        };
+                        handsData.push(processed);
                     });
                 }
             });
