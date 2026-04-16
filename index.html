@@ -51,7 +51,7 @@
 
     <script>
 
-        let scene, camera, renderer;
+        let scene, camera, renderer, stereo;
         let gun, handMesh;
         let targets = [];
         let handsData = [];
@@ -109,8 +109,17 @@
             scene = new THREE.Scene();
             window.addEventListener("resize", onResize);
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera = new THREE.PerspectiveCamera(
+                70,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                1000
+            );
+
             camera.position.set(0, 1.6, 3);
+
+            stereo = new THREE.StereoCamera();
+            stereo.eyeSep = 0.064;
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -207,17 +216,24 @@
         function renderVR() {
             const w = window.innerWidth;
             const h = window.innerHeight;
+
             renderer.setScissorTest(true);
+
+            // aplica rotação do celular
+            camera.quaternion.copy(deviceQuat);
+
+            // atualiza câmeras estéreo
+            stereo.update(camera);
+
+            // ===== OLHO ESQUERDO =====
             renderer.setViewport(0, 0, w / 2, h);
             renderer.setScissor(0, 0, w / 2, h);
-            camera.position.set(-0.03, 1.6, 3);
-            camera.quaternion.copy(deviceQuat);
-            renderer.render(scene, camera);
+            renderer.render(scene, stereo.cameraL);
+
+            // ===== OLHO DIREITO =====
             renderer.setViewport(w / 2, 0, w / 2, h);
             renderer.setScissor(w / 2, 0, w / 2, h);
-            camera.position.set(0.03, 1.6, 3);
-            camera.quaternion.copy(deviceQuat);
-            renderer.render(scene, camera);
+            renderer.render(scene, stereo.cameraR);
 
             renderer.setScissorTest(false);
         }
