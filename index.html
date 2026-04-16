@@ -190,11 +190,9 @@
             updateTargets();
 
             renderVR();
-            // recoil posição
+
             recoil *= recoilRecover;
             gun.position.z += recoil;
-
-            // recoil rotação (kick pra cima)
             gun.rotation.x -= recoil * 2;
 
             updateReload();
@@ -234,22 +232,22 @@
             if (handsData.length === 0) return;
 
             const mainHand = handsData[0];
-
             const wrist = mainHand[0];
             const index = mainHand[8];
             const thumb = mainHand[4];
-
             const dx = index.x - wrist.x;
             const dy = index.y - wrist.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-
             const x = (index.x - 0.5) * 4;
             const y = (0.5 - index.y) * 3 + 1.5;
             const z = -dist * 8;
 
             gun.position.set(x, y, z);
-            gun.lookAt(x + dx * 10, y - dy * 10, z - 5);
-
+            gun.lookAt(
+                x + dx * 10,
+                y + dy * 10,
+                z - 5
+            );
             // ===== TIRO (pinça) =====
             const pinch = Math.hypot(
                 thumb.x - index.x,
@@ -264,13 +262,9 @@
             if (handsData.length > 1) {
                 const secondHand = handsData[1];
                 const secondIndex = secondHand[8];
-
                 const gunScreenY = index.y;
-
                 const isBelow = secondIndex.y > gunScreenY + 0.08;
-
                 const closeX = Math.abs(secondIndex.x - index.x) < 0.15;
-
                 if (isBelow && closeX) {
                     startReload();
                 }
@@ -324,7 +318,6 @@
 
         function initHandTracking() {
             const videoElement = document.getElementById("video");
-
             const hands = new Hands({
                 locateFile: (file) =>
                     `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
@@ -365,9 +358,6 @@
 
             cameraMP.start();
         }
-
     </script>
-
 </body>
-
 </html>
