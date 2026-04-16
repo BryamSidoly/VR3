@@ -243,11 +243,11 @@
             const z = -dist * 8;
 
             gun.position.set(x, y, z);
-gun.lookAt(
-    x + dy * 10,
-    y - dx * 10,
-    z - 5
-);
+            gun.lookAt(
+                x + dy * 10,
+                y - dx * 10,
+                z - 5
+            );
             // ===== TIRO (pinça) =====
             const pinch = Math.hypot(
                 thumb.x - index.x,
@@ -360,4 +360,5 @@ gun.lookAt(
         }
     </script>
 </body>
+
 </html>
